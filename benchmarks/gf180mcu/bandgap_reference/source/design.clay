@@ -1,0 +1,275 @@
+package unseen.bandgap_r158_auto_gf180;
+pdk "gf180mcu";
+
+cell BandgapBiasRobustR158(vref: output, vdd: power_p, vss: power_n) {
+  topology {
+      device M1 : pmos3v {
+        drain = na; gate = na; source = vdd; body = vdd;
+        W = 10u; L = 2u; M = 1;
+      }
+      device M2 : pmos3v {
+        drain = nb; gate = na; source = vdd; body = vdd;
+        W = 10u; L = 2u; M = 1;
+      }
+      device M3 : nmos3v {
+        drain = na; gate = nb; source = vss; body = vss;
+        W = 4u; L = 1u; M = 1;
+      }
+      device M4 : nmos3v {
+        drain = nb; gate = nb; source = Rs_top; body = vss;
+        W = 16u; L = 1u; M = 1;
+      }
+      device M_start : pmos3v {
+        drain = nb; gate = na; source = vdd; body = vdd;
+        W = 0.4u; L = 20u; M = 1;
+      }
+      device Ma : pmos3v {
+        drain = e1; gate = na; source = vdd; body = vdd;
+        W = 10u; L = 2u; M = 1;
+      }
+      device Mb : pmos3v {
+        drain = e8; gate = na; source = vdd; body = vdd;
+        W = 10u; L = 2u; M = 1;
+      }
+      device M_op_tail : pmos3v {
+        drain = ot; gate = na; source = vdd; body = vdd;
+        W = 40u; L = 4u; M = 1;
+      }
+      device M_op_inp : pmos3v {
+        drain = ld; gate = e1; source = ot; body = vdd;
+        W = 80u; L = 4u; M = 1;
+      }
+      device M_op_inn : pmos3v {
+        drain = vref; gate = vm; source = ot; body = vdd;
+        W = 80u; L = 4u; M = 1;
+      }
+      device M_op_lp : nmos3v {
+        drain = ld; gate = ld; source = vss; body = vss;
+        W = 2u; L = 8u; M = 1;
+      }
+      device M_op_ln : nmos3v {
+        drain = vref; gate = ld; source = vss; body = vss;
+        W = 2u; L = 8u; M = 1;
+      }
+      device Mpu : pmos3v {
+        drain = sk; gate = vss; source = vdd; body = vdd;
+        W = 0.4u; L = 20u; M = 1;
+      }
+      device Msns : nmos3v {
+        drain = sk; gate = nb; source = vss; body = vss;
+        W = 2u; L = 1u; M = 1;
+      }
+      device Mkik : nmos3v {
+        drain = na; gate = sk; source = vss; body = vss;
+        W = 0.5u; L = 4u; M = 1;
+      }
+      res RRs {
+        p = Rs_top; n = vss;
+        value = 12000;
+        model = ppolyf_u;
+      }
+      device Q1 : pnp {
+        collector = vss; base = vss; emitter = e1;
+        model = vpnp_0p42x10;
+        area = 1;
+      }
+      device Q8_0 : pnp {
+        collector = vss; base = vss; emitter = e8;
+        model = vpnp_0p42x10;
+        area = 1;
+      }
+      device Q8_1 : pnp {
+        collector = vss; base = vss; emitter = e8;
+        model = vpnp_0p42x10;
+        area = 1;
+      }
+      device Q8_2 : pnp {
+        collector = vss; base = vss; emitter = e8;
+        model = vpnp_0p42x10;
+        area = 1;
+      }
+      device Q8_3 : pnp {
+        collector = vss; base = vss; emitter = e8;
+        model = vpnp_0p42x10;
+        area = 1;
+      }
+      device Q8_4 : pnp {
+        collector = vss; base = vss; emitter = e8;
+        model = vpnp_0p42x10;
+        area = 1;
+      }
+      device Q8_5 : pnp {
+        collector = vss; base = vss; emitter = e8;
+        model = vpnp_0p42x10;
+        area = 1;
+      }
+      device Q8_6 : pnp {
+        collector = vss; base = vss; emitter = e8;
+        model = vpnp_0p42x10;
+        area = 1;
+      }
+      device Q8_7 : pnp {
+        collector = vss; base = vss; emitter = e8;
+        model = vpnp_0p42x10;
+        area = 1;
+      }
+      res R_sum1 {
+        p = e8; n = vm;
+        value = 175k;
+        model = ppolyf_u;
+      }
+      res R_sum2 {
+        p = vref; n = vm;
+        value = 1697.5k;
+        model = ppolyf_u;
+      }
+    functional_group input_pair {
+      role = input_pair,
+      group = input_pair,
+      label = "Input pair",
+      group_label = "Input pair",
+      devices = (M_op_inp, M_op_inn),
+      intent = "two pmos with distinct gate nets (e1, vm) sharing source node ot (the tail)"
+    }
+    functional_group tail_current {
+      role = tail_current,
+      group = tail_current,
+      label = "Tail current",
+      group_label = "Tail current",
+      devices = (M_op_tail),
+      intent = "drain on the diff-pair tail node ot, source on rail vdd"
+    }
+    functional_group current_mirror {
+      role = current_mirror,
+      group = current_mirror,
+      label = "Current mirror",
+      group_label = "Current mirror",
+      devices = (M1, M2, M_op_tail, M_start, Ma, Mb),
+      intent = "6 pmos sharing gate net na (gate=drain diode reference present)"
+    }
+    functional_group load_mirror_1 {
+      role = load_mirror,
+      group = load_mirror,
+      label = "Load mirror",
+      group_label = "Load mirror",
+      devices = (M3, Msns),
+      intent = "2 nmos sharing gate net nb (gate-tied current mirror)"
+    }
+    functional_group load_mirror_2 {
+      role = load_mirror,
+      group = load_mirror,
+      label = "Load mirror",
+      group_label = "Load mirror",
+      devices = (M_op_ln, M_op_lp),
+      intent = "2 nmos sharing gate net ld (gate=drain diode reference present)"
+    }
+    functional_group pass_device {
+      role = pass_device,
+      group = pass_device,
+      label = "Pass device",
+      group_label = "Pass device",
+      devices = (M2, M_start),
+      intent = "2 parallel PMOS from rail vdd to output nb with shared gate na (wide pass-FET bank)"
+    }
+    functional_group second_stage {
+      role = second_stage,
+      group = second_stage,
+      label = "Second stage",
+      group_label = "Second stage",
+      devices = (M1, Mkik),
+      intent = "common-source nmos (gate on signal node sk) driving output na against a pmos current load"
+    }
+    functional_group bias_tree {
+      role = bias_tree,
+      group = bias_tree,
+      label = "Bias tree",
+      group_label = "Bias tree",
+      devices = (M4),
+      intent = "diode-connected / gate-tied devices generating the bias nets ['ld', 'na', 'nb']"
+    }
+    functional_group pnp_array {
+      role = pnp_array,
+      group = pnp_array,
+      label = "Pnp array",
+      group_label = "Pnp array",
+      devices = (Q1, Q8_0, Q8_1, Q8_2, Q8_3, Q8_4, Q8_5, Q8_6, Q8_7),
+      intent = "9 BJT devices forming a Delta-Vbe array"
+    }
+    functional_group resistor {
+      role = resistor,
+      group = resistor,
+      label = "Resistor",
+      group_label = "Resistor",
+      devices = (RRs, R_sum1, R_sum2),
+      intent = "3 resistor(s): ratio / feedback bank"
+    }
+  }
+}
+
+layout_intent BandgapBiasRobustR158 {
+  @place_group(nmos_core, devices=(M4, Mkik), row=0, col=0);
+  @place_group(nmos_load, devices=(M3, M_op_ln, M_op_lp, Msns), row=0, col=1);
+  @place_group(pmos_diff, devices=(M_op_inn, M_op_inp), row=1, col=0);
+  @place_group(pmos_mirror, devices=(M1, M2, M_op_tail, M_start, Ma, Mb, Mpu), row=1, col=1);
+  @place_group(pnp_bank, devices=(Q1, Q8_0, Q8_1, Q8_2, Q8_3, Q8_4, Q8_5, Q8_6, Q8_7), row=2);
+  @place_group(res_bank, devices=(RRs, R_sum1, R_sum2), row=3);
+  @guard_ring(group=(M3, M_op_ln, M_op_lp, Msns), well=p, tie=vss, hug=tight, role=tap);
+  @guard_ring(group=(M_op_inn, M_op_inp), well=n, tie=vdd, hug=tight, role=tap);
+  @guard_ring(group=(M1, M2, M_op_tail, M_start, Ma, Mb, Mpu), well=n, tie=vdd, hug=tight, role=tap);
+  @trunk(vss, layer=M3, orient=H, width=0.6, edge=bottom);
+  @trunk(vdd, layer=M3, orient=H, width=0.6, edge=top);
+  @trunk(na, layer=M2, orient=H, width=0.5);
+  @trunk(nb, layer=M2, orient=H, width=0.5);
+  @wire_width(vss, 0.6u);
+  @wire_width(vdd, 0.6u);
+  // TODO: parasitic-cap budgets / area cap need a target spec
+}
+
+policy bandgapbiasrobustr158_compact_2d {
+  @place_policy(gap = 2);
+  @route_policy(engine = pathfinder);
+}
+
+flow BandgapBiasRobustR158 {
+  pdk "gf180mcu";
+  steps (compile, layout, drc, lvs, pex, post, intent, sign);
+  layout = generic;
+  policy = bandgapbiasrobustr158_compact_2d;
+}
+
+quality BandgapBiasRobustR158 {
+  @kpi(vref_v, ">=", 1.15, unit="V");
+  @kpi(tempco_ppm, "<=", 80, unit="ppm");
+  @kpi(power_w, "<=", 0.0005, unit="W");
+  @require(drc_clean);
+}
+
+annotate BandgapBiasRobustR158 {
+  @cell: @symmetric(vertical);
+  M_op_inp: @matching(M_op_inn);
+  M_op_inn: @matching(M_op_inp);
+  M_op_ln: @matching(M_op_lp);
+  M_op_lp: @matching(M_op_ln);
+  M1: @dense_contacts;
+  M2: @dense_contacts;
+  Ma: @dense_contacts;
+  Mb: @dense_contacts;
+  M_op_tail: @dense_contacts;
+  M_op_inp: @dense_contacts;
+  M_op_inn: @dense_contacts;
+  M_op_tail: @fold(20.01);
+  M_op_inp: @fold(20.01);
+  M_op_inn: @fold(20.01);
+  Q1: @tap(vss, where=substrate);
+  Q8_0: @tap(vss, where=substrate);
+  Q8_1: @tap(vss, where=substrate);
+  Q8_2: @tap(vss, where=substrate);
+  Q8_3: @tap(vss, where=substrate);
+  Q8_4: @tap(vss, where=substrate);
+  Q8_5: @tap(vss, where=substrate);
+  Q8_6: @tap(vss, where=substrate);
+  Q8_7: @tap(vss, where=substrate);
+  RRs: @resistor_segments(pdk=gf180mcu, count=1, connection=series, width_um=0.84, length_um=28.8, segment_resistance_ohms=12000, value_quantum_ohms=1);
+  R_sum1: @resistor_segments(pdk=gf180mcu, count=10, connection=series, width_um=0.8, length_um=40, segment_resistance_ohms=17500, value_quantum_ohms=1);
+  R_sum2: @resistor_segments(pdk=gf180mcu, count=97, connection=series, width_um=0.8, length_um=40, segment_resistance_ohms=17500, value_quantum_ohms=1);
+}

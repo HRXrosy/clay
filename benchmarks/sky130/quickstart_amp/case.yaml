@@ -1,0 +1,17 @@
+schema: clay.case/v1
+id: case-basic-l1
+title: Basic self-contained L1 case
+category: quickstart
+maturity: L1_PARSE
+source:
+  clay: design.clay
+  top_cell: BasicL1
+verify:
+  commands:
+    fast:
+      - python -m clay case validate .
+obligations:
+  required:
+    - parse
+gaps:
+  - No compile, simulation, layout, or signoff evidence is claimed.

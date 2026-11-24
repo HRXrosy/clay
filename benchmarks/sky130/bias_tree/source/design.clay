@@ -1,0 +1,39 @@
+// bias_tree_demo.clay (v0.0.26 / G2)
+//
+// Demonstrates the declarative `bias_tree { ... }` block. The .clay
+// source names every bias node explicitly — instead of letting the
+// stage template hardcode a fixed bias chain. The compiler forwards
+// the parsed list to the new `two_stage_miller_pmos_explicit_bias`
+// stage builder, which materializes one Device per bias_tree entry
+// alongside the canonical signal-path (diff pair, mirror load, second
+// stage, Miller cap).
+//
+// Spec envelope matches the relaxed baseline used in showcase.clay so
+// the variant verifies under the same gain/GBW target.
+
+package examples.bias_tree_demo;
+pdk 'sky130';
+
+cell BiasExplicit(inn, inp, out, vdd, vss) {
+  topology {
+    style     = 'two_stage_miller_pmos_explicit_bias';
+    rationale = 'Bias chain declared in .clay source; signal path matches canonical PMOS Miller.';
+  }
+  spec {
+    gain_dc : real >= 10;
+    gbw     : freq >= 50kHz;
+  }
+  sizing {
+    gm_id_diff  = 15;
+    gm_id_load1 = 10;
+    gm_id_cs    = 10;
+  }
+  bias_tree {
+    Iref:      external = 10uA;
+    pbias:     pmos_diode from Iref;
+    nbias:     nmos_diode from pbias;
+    pbias_cas: pmos_mirror of pbias by 4;
+  }
+}
+
+verify BiasExplicit;

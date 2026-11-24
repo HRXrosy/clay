@@ -1,0 +1,98 @@
+// GF180 NMOS-input 5T OTA post-layout case.
+//
+// The packaged PEX deck was extracted from final/routed_5t_ota.gds. The source
+// captures the schematic intent represented by that deck: NMOS input pair,
+// PMOS diode/current-mirror load, and NMOS tail source. The post-layout runner
+// verifies the actual extracted netlist with gf180 ngspice models.
+
+package cases.opamp.five_t_ota_gf180_postlayout;
+pdk "gf180mcu";
+
+cell FiveTOtaGf180(inn, inp, outn, outp, vbias, vdd, vss) {
+  topology {
+    device M_tail : nmos {
+      drain = tail;
+      gate = vbias;
+      source = vss;
+      body = vss;
+      W = 32u;
+      L = 1u;
+    }
+    device M_in_n : nmos {
+      drain = outn;
+      gate = inn;
+      source = tail;
+      body = vss;
+      W = 16u;
+      L = 0.5u;
+    }
+    device M_in_p : nmos {
+      drain = outp;
+      gate = inp;
+      source = tail;
+      body = vss;
+      W = 16u;
+      L = 0.5u;
+    }
+    device M_load_diode : pmos {
+      drain = outp;
+      gate = outp;
+      source = vdd;
+      body = vdd;
+      W = 16u;
+      L = 1u;
+    }
+    device M_load_out : pmos {
+      drain = outn;
+      gate = outp;
+      source = vdd;
+      body = vdd;
+      W = 16u;
+      L = 1u;
+    }
+  }
+  spec {
+    gain_dc : real >= 40;
+  }
+}
+
+annotate FiveTOtaGf180 {
+  M_in_n: @matching(M_in_p);
+  M_in_p: @matching(M_in_n);
+  M_load_diode: @matching(M_load_out);
+  M_load_out: @matching(M_load_diode);
+}
+
+// Layout-intent obligation, measured on the REAL packaged PEX extraction
+// (final/routed_5t_ota.pex.spice). The matched NMOS input pair (M_in_n/M_in_p,
+// gates inn/inp) is the genuinely symmetric signal-net pair of a 5T OTA: a
+// matched_cc_balance(inp, inn) budget measures the per-net total-cap relative
+// imbalance between the two input gates. The extracted decks lands at 0.0023
+// imbalance (inp 1378.39 aF vs inn 1375.17 aF), inside a 0.10 budget — a
+// measured, passing matched-pair obligation that signs the proof token. The
+// output pair (outp/outn) is NOT matched: outp carries the diode-connected PMOS
+// load gate (~0.66 imbalance), so it is intentionally not budgeted.
+layout_intent FiveTOtaGf180 {
+  @budget(matched_cc_balance, inp, inn, 0.10);
+}
+
+// Flow registration: bind the real routed 5T-OTA generator so this package is
+// picked up by discover_registry() and runnable via `clay flow run`. The
+// generator (clay.layout.ota_router) exposes
+// build_routed_5t_ota / emit_routed_5t_ota.
+flow FiveTOtaGf180 {
+  pdk "gf180mcu";
+  corners (tt);
+  steps (compile, layout, drc, lvs, pex, post, intent, sign);
+  layout = clay.layout.ota_router;
+}
+
+// Acceptance contract. KPI targets are sourced from the package's real
+// post-layout ngspice run (final/postlayout_sim.json): metrics.dc_gain_db =
+// 42.48 dB against the package criterion dc_gain_db_min = 40, and the operating
+// point idd lands at 8.11e-5 A inside the package idd band [2e-5, 2e-4].
+quality FiveTOtaGf180 {
+  @kpi(dc_gain_db, ">=", 40, unit="dB");
+  @kpi(idd_a, "<=", 2e-4, unit="A");
+  @require(intent_signed);
+}

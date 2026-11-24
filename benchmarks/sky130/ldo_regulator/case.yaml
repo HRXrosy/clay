@@ -1,0 +1,67 @@
+schema: clay.case/v1
+id: case_analoggym_ldo
+title: AnalogGym PMOS-pass LDO regulator
+category: regulator
+maturity: L2_COMPILE
+source:
+  clay: source/design.clay
+  top_cell: LdoSimple
+  upstream_clay: examples/analoggym_ldo_benchmark.clay
+metadata:
+  pdk: sky130
+  family: ldo
+  analoggym_category: Low Dropout Regulator
+  design_intent:
+    - Use an NMOS-input error amplifier to compare reference and feedback voltages.
+    - Use a large PMOS pass device as the series regulator element.
+    - Use an internal bias tree so the regulator is a self-contained five-port Clay cell.
+    - Use the feedback RC network as the loop-compensation handle.
+  external_references:
+    - https://www.analog.com/en/resources/analog-dialogue/articles/fundamentals-of-ldo-design-and-applications.html
+    - https://www.ti.com/lit/an/slyt202/slyt202.pdf
+criteria:
+  structural:
+    mos_devices: 6
+    pass_device:
+      type: pmos
+      multiplicity: 360
+    compensation:
+      type: series_rc_feedback
+      cap: Cfb
+      resistor: Rfb
+    biasing:
+      internal_bias_node: nbias
+  kpis:
+    line_regulation_mv_per_v:
+      op: "<="
+      target: 50
+      declared_in_source: true
+    load_regulation_mv_per_a:
+      op: "<="
+      target: 100
+      declared_in_source: true
+    line_step_vout_final_v:
+      op: ">="
+      target: 0
+      declared_in_source: true
+    load_step_vout_final_v:
+      op: ">="
+      target: 0
+      declared_in_source: true
+artifacts:
+  - evidence/design_intent.md
+verify:
+  commands:
+    fast:
+      - python -m clay case validate .
+      - python -m pytest ../../../tests/test_analoggym_ldo_benchmark.py -q
+obligations:
+  required:
+    - parse
+    - compile
+    - ldo_architecture
+    - regulation_testbench_contract
+gaps:
+  - Declared lowered from L3_SIM to L2_COMPILE; the verify command runs a live ngspice line/load regulation testbench via pytest but persists no measured sim-results json on disk, so evidence-computed maturity stops at L2. Bundle a measured sim json (line/load regulation KPIs) to restore L3_SIM.
+  - The package does not yet include full PVT, PSRR, transient-load, layout, PEX, or signoff artifacts.
+  - Higher maturity should bind measured KPI tables instead of relying on source-declared thresholds.

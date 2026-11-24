@@ -1,0 +1,49 @@
+* Unseen Benchmark 1: 4-bit Current-Steering DAC Core (gf180mcu 3.3V)
+* Cell: cs_dac_4bit_gf180
+*
+* Topology:
+*   - Bias generation: NMOS reference diode (MNBIAS), replica mirror (MNB_MIR),
+*     PMOS bias mirror (MPB_DIO, MPB_CAS), and cascode bias leg (MCB_BOT, MCB_DIO).
+*   - 1:2:4:8 binary-weighted NMOS current-source array (MI0..MI3, W = 12u/24u/48u/96u, L = 2u)
+*     testing non-1:1 ratio matching and progressive multi-finger folding.
+*   - 1:2:4:8 binary-weighted NMOS cascode shield tier (MC0..MC3, W = 8u/16u/32u/64u, L = 1u).
+*   - 4 differential current-steering switch pairs (MSW0P/N..MSW3P/N, W = 8u/16u/32u/64u, L = 0.5u)
+*     driving shared high-current differential output trunks IOUTP and IOUTN (IFS = 1.5 mA).
+*
+* Spec: Power <= 8 mW, Idd <= 2.5 mA, IFS >= 1.4 mA, INL <= 0.1 LSB, DNL <= 0.1 LSB, Monotonic = 1
+*
+* Ports: ioutp ioutn ibias b0 b0b b1 b1b b2 b2b b3 b3b vdd vss
+
+.subckt cs_dac_4bit_gf180 ioutp ioutn ibias b0 b0b b1 b1b b2 b2b b3 b3b vdd vss
+
+* --- Bias mirror & cascode voltage generator ---
+xMNBIAS  ibias  ibias  vss    vss nmos_3p3 W=12u L=2u
+xMNB_MIR vbp    ibias  vss    vss nmos_3p3 W=12u L=2u
+xMPB_DIO vbp    vbp    vdd    vdd pmos_3p3 W=24u L=1u
+xMPB_CAS vb_cas vbp    vdd    vdd pmos_3p3 W=24u L=1u
+xMCB_BOT nb_bot ibias  vss    vss nmos_3p3 W=12u L=2u
+xMCB_DIO vb_cas vb_cas nb_bot vss nmos_3p3 W=8u  L=1u
+
+* --- 1:2:4:8 binary-weighted NMOS current sources ---
+xMI0 ns0 ibias vss vss nmos_3p3 W=12u L=2u
+xMI1 ns1 ibias vss vss nmos_3p3 W=24u L=2u
+xMI2 ns2 ibias vss vss nmos_3p3 W=48u L=2u
+xMI3 ns3 ibias vss vss nmos_3p3 W=96u L=2u
+
+* --- 1:2:4:8 binary-weighted NMOS cascode shields ---
+xMC0 nc0 vb_cas ns0 vss nmos_3p3 W=8u  L=1u
+xMC1 nc1 vb_cas ns1 vss nmos_3p3 W=16u L=1u
+xMC2 nc2 vb_cas ns2 vss nmos_3p3 W=32u L=1u
+xMC3 nc3 vb_cas ns3 vss nmos_3p3 W=64u L=1u
+
+* --- 4 differential current-steering switch pairs ---
+xMSW0P ioutp b0  nc0 vss nmos_3p3 W=8u  L=0.5u
+xMSW0N ioutn b0b nc0 vss nmos_3p3 W=8u  L=0.5u
+xMSW1P ioutp b1  nc1 vss nmos_3p3 W=16u L=0.5u
+xMSW1N ioutn b1b nc1 vss nmos_3p3 W=16u L=0.5u
+xMSW2P ioutp b2  nc2 vss nmos_3p3 W=32u L=0.5u
+xMSW2N ioutn b2b nc2 vss nmos_3p3 W=32u L=0.5u
+xMSW3P ioutp b3  nc3 vss nmos_3p3 W=64u L=0.5u
+xMSW3N ioutn b3b nc3 vss nmos_3p3 W=64u L=0.5u
+
+.ends cs_dac_4bit_gf180

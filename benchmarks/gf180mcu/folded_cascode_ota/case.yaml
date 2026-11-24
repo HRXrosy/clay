@@ -1,0 +1,19 @@
+schema: clay.case/v1
+id: fc_ota_auto_gf180
+title: fc_ota_auto_gf180
+maturity: L1_PARSE
+source:
+  clay: source/design.clay
+  top_cell: folded_cascode_ota
+metadata:
+  pdk: gf180mcu
+  source_spice: benchmarks/gf180mcu/folded_cascode_ota/fc_ota_auto_gf180.cir
+  presim_module: benchmarks.gf180mcu.folded_cascode_ota.scripts.presim_driver
+  postsim_module: benchmarks.gf180mcu.folded_cascode_ota.scripts.postsim_driver
+  postsim_function: run_post_kpis
+  testbenches:
+    - tb_fc_ota.sp
+  intent_flow:
+    schema: clay.intent-flow/v1
+    variant: current
+    mode: generate

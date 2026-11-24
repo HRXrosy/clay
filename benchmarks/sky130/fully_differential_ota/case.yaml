@@ -1,0 +1,35 @@
+schema: clay.case/v1
+id: case_fully_differential_amp
+title: Single-stage fully-differential amplifier (FDA), PMOS input
+category: opamp
+maturity: L2_COMPILE
+source:
+  clay: source/design.clay
+  top_cell: FDAmp
+  upstream_clay: examples/fda_demo.clay
+metadata:
+  pdk: sky130
+  family: fully_differential_amp
+  topology_style: fully_differential_pmos_input
+  source: examples/fda_demo.clay
+  ports:
+    - inn
+    - inp
+    - out_p
+    - out_n
+    - vdd
+    - vss
+verify:
+  commands:
+    fast:
+      - python -m clay case validate .
+obligations:
+  required:
+    - parse
+    - compile
+gaps:
+  - Declared L2_COMPILE matches the evidence-computed level. The PMOS-input
+    fully-differential single-stage topology compiles to a device netlist; no
+    measured sim json, layout intent block, GDS, or signoff record is bundled.
+  - The upstream demo has a pseudo-CMFB (tie-down resistors only), not a real
+    CMFB loop; the differential gain spec is calibrated single-ended on out_p.

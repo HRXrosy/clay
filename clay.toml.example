@@ -1,0 +1,12 @@
+# Clay Open-PDK Configuration Example (copy to `clay.toml`)
+#
+# Environment variables take precedence over this file:
+#   CLAY_GF180MCU_PATH -> path to gf180mcu-pdk (or gf180mcuD)
+#   CLAY_PDK_PATH      -> path to active default PDK root (e.g., sky130A or gf180mcu)
+#   CLAY_PDK_ID        -> default PDK id ("sky130" or "gf180mcu")
+#   CLAY_NGSPICE_BIN   -> path to ngspice (Windows: ngspice_con.exe)
+
+[tool.clay]
+pdk_id = "sky130"
+pdk_root = "pdks/sky130A"
+work_dir = "tmp_clay_rundir"

@@ -1,0 +1,35 @@
+{
+  "schema_version": "v1.0",
+  "cohort": "nested_miller_3stage_nmcnr_hybrid_d1_ff",
+  "pdk": "sky130",
+  "corner": "tt",
+  "temperature_c": 27,
+  "calibration_metadata": {
+    "calibration_round": "R98_F",
+    "m_orig": 1.0,
+    "m_target_sweep": [
+      1,
+      2,
+      4,
+      8,
+      16
+    ],
+    "roles_calibrated": [
+      "diff_pair"
+    ],
+    "method": "real_ngspice_m_sweep",
+    "platform": "Windows",
+    "ngspice_available": true,
+    "candidate_count_per_point": 10,
+    "fallback_when_no_ngspice": "r96b_fixed_band"
+  },
+  "entries": {
+    "diff_pair": {
+      "1": 1.0,
+      "2": 0.95,
+      "4": 0.95,
+      "8": 0.9,
+      "16": 0.9
+    }
+  }
+}

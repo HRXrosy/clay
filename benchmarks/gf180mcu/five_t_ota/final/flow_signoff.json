@@ -1,0 +1,77 @@
+{
+ "schema": "clay.flow_signoff/v1",
+ "spec_key": "five_t_ota",
+ "top_cell": "FiveTOtaGf180",
+ "gds_cell_name": "routed_5t_ota",
+ "layout_module": "clay.layout.ota_router",
+ "pdk": "gf180mcu",
+ "verdict": "pass",
+ "per_step_status": {
+  "compile": "pass",
+  "layout": "pass",
+  "drc": "pass",
+  "pex": "pass",
+  "post": "pass",
+  "intent": "pass",
+  "sign": "pass"
+ },
+ "drc": {
+  "is_clean": true,
+  "n_violations": 0
+ },
+ "pex": {
+  "n_caps": 26,
+  "total_cap_fF": 29.475140000000003,
+  "backend": "magic"
+ },
+ "intent": {
+  "signed": true,
+  "verdict": "pass",
+  "cell": "FiveTOtaGf180",
+  "intent_digest": "c17660ccf74de8c4",
+  "n_obligations": 1,
+  "obligations": [
+   {
+    "kind": "matched_cc_balance",
+    "pair": [
+     "inp",
+     "inn"
+    ],
+    "measured_imbalance": 0.002336058735191076,
+    "rel_tol": 0.1,
+    "status": "pass"
+   }
+  ],
+  "score": {
+   "pass_fraction": 1.0,
+   "n_pass": 1,
+   "n_fail": 0,
+   "n_total": 1
+  }
+ },
+ "sign": {
+  "verdict": "pass",
+  "gates": [
+   {
+    "kind": "intent_signed",
+    "status": "pass"
+   }
+  ],
+  "kpis": [
+   {
+    "key": "dc_gain_db_post",
+    "raw": 42.48149217263793,
+    "unit": "dB",
+    "target": ">= 40.0",
+    "status": "pass"
+   },
+   {
+    "key": "idd_a_post",
+    "raw": 8.110605e-05,
+    "unit": "uA",
+    "target": "<= 0.0002",
+    "status": "pass"
+   }
+  ]
+ }
+}

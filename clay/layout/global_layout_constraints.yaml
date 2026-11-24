@@ -1,0 +1,69 @@
+# Global layout/routing rules every Clay-built cell must satisfy.
+#
+# Elastic: add new rules at the bottom; each rule declares an id, description,
+# severity (error|warning), and parameters. The Python checker
+# (clay/layout/global_constraints.py) dispatches each rule id to its
+# implementation. New rule -> add an entry here + a checker function.
+#
+# Per-cell intent (matched_cc_balance, shield, etc.) lives in the LayoutIntent
+# contract (clay/layout/intent.py). This file holds the STRUCTURAL rules that
+# every layout / every router must respect regardless of the circuit.
+
+schema: clay.global_layout_constraints/v1
+
+rules:
+
+  - id: containment_within_rails
+    description: |
+      All non-rail polygons (devices, traces, taps) must lie within the band
+      bounded by the gnd rail's top edge (floor) and the vdd rail's bottom
+      edge (ceiling). No floating device above the ceiling or below the
+      floor. The rail polygons themselves are the band edges and are
+      exempt by definition. The "rail" polygon is identified geometrically:
+      the widest polygon tagged with a vdd/gnd net (the cell's long horizontal
+      strip, not a short vertical tap finger).
+    severity: error
+    parameters:
+      # Cells use varying conventions. Any polygon tagged with one of these
+      # net names is treated as part of the named power network.
+      vdd_nets: [vdd, VDD, vin, VIN, vcc, VCC]
+      gnd_nets: [gnd, GND, vss, VSS, ground, GROUND]
+      tolerance_nm: 0
+
+  - id: no_signal_crosses_rails
+    description: |
+      A signal-net polygon may not overlap a vdd or gnd polygon on the SAME
+      metal layer (would form a short to the rail). Explicit taps that
+      connect to a rail should be tagged with the rail's net (so they ARE
+      part of the rail, not a crossing). A trace passing UNDER a rail on
+      a different layer is fine (no short).
+    severity: error
+    parameters:
+      vdd_nets: [vdd, VDD, vin, VIN, vcc, VCC]
+      gnd_nets: [gnd, GND, vss, VSS, ground, GROUND]
+
+  - id: prefer_symmetry_and_minimal
+    description: |
+      Where matched device pairs exist (identified by name-suffix convention
+      _p/_n, _l/_r, _left/_right, _ref/_out, _t/_b), prefer mirror-symmetric
+      PLACEMENT (matched-pair centroids equidistant about the cell axis at
+      the same y) and mirror-symmetric ROUTING for those pairs. Minimize
+      cell AREA and total wire LENGTH. "Where possible" -- soft preference,
+      so violations are warnings; cells with no matched-pair-by-name (single-
+      ended chains, current mirrors, etc.) the symmetry sub-check is silent.
+      Area + total trace length are reported as info metrics for cross-cell
+      tracking (a soft minimization target, no hard threshold).
+    severity: warning
+    parameters:
+      vdd_nets: [vdd, VDD, vin, VIN, vcc, VCC]
+      gnd_nets: [gnd, GND, vss, VSS, ground, GROUND]
+      # max acceptable relative dx_imbalance / dy_offset for a matched pair
+      # before it earns an asymmetry warning (units: fraction of cell width/height).
+      placement_symmetry_max_imbalance: 0.02
+      # name-suffix pairs the heuristic matcher recognises (case-insensitive).
+      pair_suffixes:
+        - [_p, _n]
+        - [_l, _r]
+        - [_left, _right]
+        - [_ref, _out]
+        - [_t, _b]

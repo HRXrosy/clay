@@ -1,0 +1,48 @@
+// Demo: single-stage fully-differential amplifier (FDA) with PMOS input.
+//
+// First fully-differential cell in Clay's standard library. Port list is
+// (inn, inp, out_p, out_n, vdd, vss) — TWO output ports (out_p, out_n)
+// that together carry the differential signal. Essential for high-SNR
+// ADC drivers, sigma-delta loops, and modern data converters.
+//
+// Topology:
+//   vdd ─ Mtail (PMOS) ─ tail
+//   M1 (PMOS, gate=inp, drain=out_n) ┐
+//   M2 (PMOS, gate=inn, drain=out_p) │ ← diff pair (PMOS-input polarity)
+//   M3, M4 (NMOS active loads, gate=nbias_load, source=vss)
+//   pseudo-CMFB: 100MΩ from each output to internal midrail node
+//
+// Measurement convention (v0.0.22):
+//   The Clay measure expression grammar does not yet support arithmetic
+//   like `vdb(out_p) - vdb(out_n)`. The testbench measures out_p only;
+//   because the topology is symmetric, |vout_p| ≈ |vout_n|, so the true
+//   differential gain in dB is approximately the reported gain_dc + 6 dB.
+//   The spec below is calibrated against the single-ended-equivalent
+//   measurement on out_p (10 dB single-ended ≈ 16 dB differential).
+//
+// Known limitation (v0.0.22):
+//   No real CMFB loop. A pair of 100 MΩ tie-down resistors softly pulls
+//   the common-mode to mid-rail, sufficient for AC characterization but
+//   not for switched-cap or sigma-delta loop use. Real CMFB is a follow-up.
+
+package examples.fda_demo;
+pdk 'sky130';
+
+cell FDAmp(inn, inp, out_p, out_n, vdd, vss) {
+  topology {
+    style     = 'fully_differential_pmos_input';
+    rationale = 'Single-stage FDA with PMOS input; standard ADC-driver topology.';
+  }
+
+  spec {
+    gain_dc : real >= 10;
+    gbw     : freq >= 100kHz;
+  }
+
+  sizing {
+    gm_id_diff = 15;
+    gm_id_load = 10;
+  }
+}
+
+verify FDAmp;

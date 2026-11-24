@@ -1,0 +1,25 @@
+schema: clay.case/v1
+id: ldo_auto_gf180
+title: ldo_auto_gf180
+maturity: L1_PARSE
+source:
+  clay: source/design.clay
+  top_cell: ldo_gf180
+metadata:
+  pdk: gf180mcu
+  mim_option: B
+  mim_cap: "2"
+  metal_level: 5LM
+  source_spice: benchmarks/gf180mcu/ldo_regulator/ldo_auto_gf180.cir
+  presim_module: benchmarks.gf180mcu.ldo_regulator.scripts.presim_driver
+  postsim_module: benchmarks.gf180mcu.ldo_regulator.scripts.postsim_driver
+  postsim_function: run_post_kpis
+  testbenches:
+    - tb_dc.sp
+    - tb_psrr.sp
+    - tb_loopgain.sp
+    - tb_loadstep.sp
+  intent_flow:
+    schema: clay.intent-flow/v1
+    variant: current
+    mode: generate

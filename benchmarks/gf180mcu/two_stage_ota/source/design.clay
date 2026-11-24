@@ -1,0 +1,181 @@
+package cases.unseen_benchmarks.two_stage_ota_auto_gf180;
+pdk "gf180mcu";
+
+cell two_stage_ota(vinp: input, vinn: input, vout: output, ibias: bias, vdd: power_p, vss: power_n) {
+  topology {
+      device MNBIAS : nmos3v {
+        drain = ibias; gate = ibias; source = vss; body = vss;
+        W = 4u; L = 1u;
+      }
+      device MNSINKP : nmos3v {
+        drain = vbias_p; gate = ibias; source = vss; body = vss;
+        W = 4u; L = 1u;
+      }
+      device MPBIAS : pmos3v {
+        drain = vbias_p; gate = vbias_p; source = vdd; body = vdd;
+        W = 8u; L = 1u;
+      }
+      device MPTAIL : pmos3v {
+        drain = ntail; gate = vbias_p; source = vdd; body = vdd;
+        W = 32u; L = 1u;
+      }
+      device MP1 : pmos3v {
+        drain = vx_l; gate = vinn; source = ntail; body = vdd;
+        W = 24u; L = 1u;
+      }
+      device MP2 : pmos3v {
+        drain = vx; gate = vinp; source = ntail; body = vdd;
+        W = 24u; L = 1u;
+      }
+      device MN3 : nmos3v {
+        drain = vx_l; gate = vx_l; source = vss; body = vss;
+        W = 6u; L = 2u;
+      }
+      device MN4 : nmos3v {
+        drain = vx; gate = vx_l; source = vss; body = vss;
+        W = 6u; L = 2u;
+      }
+      device MN6 : nmos3v {
+        drain = vout; gate = vx; source = vss; body = vss;
+        W = 80u; L = 0.5u;
+      }
+      device MP6 : pmos3v {
+        drain = vout; gate = vbias_p; source = vdd; body = vdd;
+        W = 96u; L = 1u;
+      }
+      res RZ1 {
+        p = vx; n = ncc;
+        value = 2k;
+        model = ppolyf_u;
+      }
+      cap CC1 {
+        p = ncc; n = vout;
+        value = 1.2p;
+      }
+    functional_group input_pair {
+      role = input_pair,
+      group = input_pair,
+      label = "Input pair",
+      group_label = "Input pair",
+      devices = (MP1, MP2),
+      intent = "two pmos with distinct gate nets (vinn, vinp) sharing source node ntail (the tail)"
+    }
+    functional_group tail_current {
+      role = tail_current,
+      group = tail_current,
+      label = "Tail current",
+      group_label = "Tail current",
+      devices = (MPTAIL),
+      intent = "drain on the diff-pair tail node ntail, source on rail vdd"
+    }
+    functional_group load_mirror_1 {
+      role = load_mirror,
+      group = load_mirror,
+      label = "Load mirror",
+      group_label = "Load mirror",
+      devices = (MNBIAS, MNSINKP),
+      intent = "2 nmos sharing gate net ibias (gate=drain diode reference present)"
+    }
+    functional_group current_mirror {
+      role = current_mirror,
+      group = current_mirror,
+      label = "Current mirror",
+      group_label = "Current mirror",
+      devices = (MP6, MPBIAS, MPTAIL),
+      intent = "3 pmos sharing gate net vbias_p (gate=drain diode reference present)"
+    }
+    functional_group load_mirror_2 {
+      role = load_mirror,
+      group = load_mirror,
+      label = "Load mirror",
+      group_label = "Load mirror",
+      devices = (MN3, MN4),
+      intent = "2 nmos sharing gate net vx_l (gate=drain diode reference present)"
+    }
+    functional_group second_stage {
+      role = second_stage,
+      group = second_stage,
+      label = "Second stage",
+      group_label = "Second stage",
+      devices = (MN6, MP6),
+      intent = "common-source nmos (gate on signal node vx) driving output vout against a pmos current load"
+    }
+    functional_group compensation {
+      role = compensation,
+      group = compensation,
+      label = "Compensation",
+      group_label = "Compensation",
+      devices = (CC1, RZ1),
+      intent = "cap CC1 on nets ['ncc', 'vout'] forming a Miller compensation branch"
+    }
+    functional_group pmos_mirror_array_1 {
+      role = current_mirror,
+      group = current_mirror,
+      label = "Current mirror",
+      group_label = "Current mirror",
+      devices = (MPBIAS, MPTAIL),
+      intent = "uniform-unit shared-diffusion mirror array"
+    }
+  }
+}
+
+layout_intent two_stage_ota {
+  @objective(area, minimize);
+  @place_group(nmos_band, devices=(MN3, MN4, MN6, MNBIAS, MNSINKP));
+  @place_group(pmos_band, devices=(MP1, MP2, MP6, MPBIAS, MPTAIL));
+  @place_group(passive_bank, devices=(CC1, RZ1));
+  @band(top=vdd, bottom=vss, center=passive_bank);
+  @array(load_mirror_2, style=shared_diffusion, order=ratio);
+  @array(load_mirror_1, style=shared_diffusion, order=ratio);
+  @array(pmos_mirror_array_1, style=shared_diffusion, order=ratio);
+  @guard_ring(group=(MP1, MP2), well=n, tie=vdd, hug=tight, role=tap);
+  @guard_ring(group=(MPBIAS, MPTAIL), well=n, tie=vdd, hug=tight, role=tap);
+  @trunk(vss, layer=M3, orient=H, width=0.6, edge=bottom);
+  @trunk(vdd, layer=M3, orient=H, width=0.6, edge=top);
+  @trunk(vbias_p, layer=M2, orient=H, width=0.5);
+  @wire_width(vss, 0.6u);
+  @wire_width(vdd, 0.6u);
+  @wire_width(vout, 0.6u);
+  // TODO: parasitic-cap budgets / area cap need a target spec
+}
+
+policy two_stage_ota_compact_2d {
+  @place_policy(gap = 1.8);
+  @route_policy(engine = pathfinder);
+}
+
+flow two_stage_ota {
+  pdk "gf180mcu";
+  steps (compile, layout, drc, lvs, pex, post, intent, sign);
+  layout = generic;
+  policy = two_stage_ota_compact_2d;
+}
+
+quality two_stage_ota {
+  @kpi(dc_gain_db, ">=", 70, unit="dB");
+  @kpi(gbw_hz, ">=", 15000000, unit="Hz");
+  @kpi(pm_deg, ">=", 60, unit="deg");
+  @kpi(power_w, "<=", 0.001, unit="W");
+  @require(drc_clean);
+}
+
+annotate two_stage_ota {
+  @cell: @symmetric(vertical);
+  MP1: @matching(MP2);
+  MP2: @matching(MP1);
+  MP1: @dense_contacts;
+  MP2: @dense_contacts;
+  MN6: @dense_contacts;
+  MP6: @dense_contacts;
+  MNBIAS: @fold(2.01);
+  MNSINKP: @fold(2.01);
+  MPBIAS: @fold(4.01);
+  MPTAIL: @fold(4.01);
+  MP1: @fold(12.01);
+  MP2: @fold(12.01);
+  MN3: @fold(3.01);
+  MN4: @fold(3.01);
+  MN6: @fold(20.01);
+  MP6: @fold(16.01);
+  RZ1: @resistor_segments(pdk=gf180mcu, count=1, connection=series, width_um=0.84, length_um=4.8, segment_resistance_ohms=2000, value_quantum_ohms=1);
+}

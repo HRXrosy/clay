@@ -1,0 +1,41 @@
+tech
+ format 35
+ min_clay
+end
+planes
+  metal1,m1
+end
+types
+  metal1 metal1
+end
+contact
+end
+styles
+ styletype mos
+  metal1 metal1
+end
+compose
+end
+connect
+  metal1 metal1
+end
+cifoutput
+style gdsii
+ scalefactor 1 nanometers
+ layer METAL1 metal1
+	calma 31 0
+end
+cifinput
+style gdsii
+ scalefactor 1 nanometers
+ layer METAL1 metal1
+	calma 31 0
+end
+drc
+end
+extract
+ style ngspice
+ cscale 1
+ units microns
+ defaultareacap metal1 metal1 0.4
+end

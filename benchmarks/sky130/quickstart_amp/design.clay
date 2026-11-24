@@ -1,0 +1,18 @@
+package cases.quickstart.basic_l1;
+pdk 'sky130';
+
+cell BasicL1(vin, out, vdd, vss) {
+  topology {
+    device M1 : nmos {
+      drain = out;
+      gate = vin;
+      source = vss;
+      body = vss;
+      W = 1u;
+      L = 0.15u;
+    }
+  }
+  spec {
+    gain_dc : real >= 1;
+  }
+}

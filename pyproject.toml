@@ -1,0 +1,49 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "clay-eda"
+version = "0.4.45"
+description = "Clay: open-source intent-driven analog circuit compiler & C++20 physical synthesis engine for SKY130 and GF180MCU."
+readme = "README.md"
+license = { text = "AGPL-3.0-only" }
+requires-python = ">=3.12"
+authors = [{ name = "Zhaori Bi", email = "zhaori_bi@fudan.edu.cn" }]
+keywords = ["EDA", "analog", "layout", "sky130", "gf180mcu", "GDSII", "C++20", "PnR"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: GNU Affero General Public License v3 (AGPLv3)",
+    "Programming Language :: C++",
+    "Programming Language :: Python :: 3.12",
+    "Topic :: Scientific/Engineering :: Electronic Design Automation (EDA)",
+]
+dependencies = [
+    "lark>=1.1",
+    "numpy>=1.24",
+    "scipy>=1.9",
+    "ortools==9.8.3296",
+    "PyYAML>=6.0",
+]
+
+[project.urls]
+Homepage = "https://github.com/bzr2915/clay"
+Repository = "https://github.com/bzr2915/clay"
+Issues = "https://github.com/bzr2915/clay/issues"
+
+[project.optional-dependencies]
+signoff = ["klayout>=0.29"]
+dev = ["pytest>=8.0", "pytest-xdist>=3.5", "klayout>=0.29"]
+
+[project.scripts]
+clay = "clay.cli:main"
+
+[tool.setuptools]
+include-package-data = false
+
+[tool.setuptools.package-data]
+clay = ["grammar.lark", "layout/*.yaml", "pdk/*.yaml", "_native/*.pyd", "_native/*.so"]
+
+[tool.setuptools.packages.find]
+include = ["clay*", "tools*"]

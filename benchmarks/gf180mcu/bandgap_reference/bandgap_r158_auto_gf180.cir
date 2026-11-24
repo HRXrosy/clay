@@ -1,0 +1,64 @@
+* GF180MCU Bandgap Voltage Reference (BandgapBiasRobustR158)
+* Copied cleanly from circuits/bandgap/bandgap_gf180.cir (15 MOS + 9 vpnp_0p42x10 + 3 poly resistors)
+* Spec: Vref >= 1.15 V, Tempco <= 80 ppm, Power <= 500 uW
+.option scale=1.0u
+
+.subckt BandgapBiasRobustR158 vref vdd vss
+* --- constant-gm core (identical to the R158 cell) ---
+  xM1 na na vdd vdd pmos_3p3 W=10 L=2 m=1
+  xM2 nb na vdd vdd pmos_3p3 W=10 L=2 m=1
+  xM3 na nb vss vss nmos_3p3 W=4 L=1 m=1
+  xM4 nb nb Rs_top vss nmos_3p3 W=16 L=1 m=1
+  RRs Rs_top vss 12000
+* M_start: cutoff start-up device, widened to W=0.4 for DRC CO.4 contact-enclosure
+* (the 0.22 um silicon could not fit a compliant S/D contact). Width is
+* operating-point-irrelevant (cutoff start-up); matches the layout silicon width.
+  xM_start nb na vdd vdd pmos_3p3 W=0.4 L=20 m=1
+* --- Delta-Vbe legs (PMOS bias mirrors feeding the 1x and 8x PNPs) ---
+  xMa e1 na vdd vdd pmos_3p3 W=10 L=2 m=1
+  xQ1 vss vss e1 vpnp_0p42x10
+  xMb e8 na vdd vdd pmos_3p3 W=10 L=2 m=1
+  xQ8_0 vss vss e8 vpnp_0p42x10
+  xQ8_1 vss vss e8 vpnp_0p42x10
+  xQ8_2 vss vss e8 vpnp_0p42x10
+  xQ8_3 vss vss e8 vpnp_0p42x10
+  xQ8_4 vss vss e8 vpnp_0p42x10
+  xQ8_5 vss vss e8 vpnp_0p42x10
+  xQ8_6 vss vss e8 vpnp_0p42x10
+  xQ8_7 vss vss e8 vpnp_0p42x10
+* --- 5T-OTA summer (replaces the R158 behavioral Bsum) -------------------
+*   PMOS input pair (input CM is the Vbe-class ~0.74 V, which the PMOS pair
+*   has plenty of headroom for on a 3.3 V supply); NMOS current-mirror load
+*   (long-channel W=2/L=8 for high ro_n); PMOS tail biased from the
+*   constant-gm core node `na` so the tail current tracks the supply-
+*   independent reference (preserves line sensitivity).
+*   V+ = e1, V- = vm; output = vref.
+*   Closed-loop transfer (forced by negative feedback, infinite-gain limit):
+*       Vref = Vbe1 + (R2/R1) * (Vbe1 - Vbe8)
+*   With the 5T-OTA's finite open-loop gain (~150 V/V open / ~30 loaded),
+*   the realised closed-loop gain droops by ~5 %; we set R2/R1 = 9.7 (not
+*   the ideal 8.7) so the realised PTAT weight lands near the curvature-
+*   compensated bowl. The 5T-OTA topology was chosen per the design contract;
+*   a 2-stage opamp would give ~1000x more gain but is not a 5T-OTA.
+  xM_op_tail ot   na vdd vdd pmos_3p3 W=40 L=4 m=1
+  xM_op_inp  ld   e1 ot  vdd pmos_3p3 W=80 L=4 m=1
+  xM_op_inn  vref vm ot  vdd pmos_3p3 W=80 L=4 m=1
+  xM_op_lp   ld   ld vss vss nmos_3p3 W=2  L=8 m=1
+  xM_op_ln   vref ld vss vss nmos_3p3 W=2  L=8 m=1
+* --- ppolyf_u summing-resistor banks (the silicon R-ratio) ----------------
+* Unit cell: ppolyf_u, W=1 um, L=50 um -> 50 squares x 350 Ohm/sq = 17.5 kOhm.
+* R_sum1 (e8 to vm):   10 unit cells -> 175 kOhm; the inverting-input branch.
+* R_sum2 (vref to vm): 97 unit cells -> 1697.5 kOhm; the feedback branch.
+* R2/R1 = 97/10 = 9.7 (integer realization of the finite-gain-tuned PTAT
+* weight; common-centroid 97:10 banks share unit-cell layer / orientation /
+* nearest-neighbour so process gradients track between the two banks).
+  R_sum1 e8   vm 175k
+  R_sum2 vref vm 1697.5k
+* --- 3-MOS self-disabling start-up (identical to the R158 cell) ----------
+* Mpu: cutoff start-up device, widened to W=0.4 for DRC CO.4 contact-enclosure
+* (the 0.22 um silicon could not fit a compliant S/D contact). Width is
+* operating-point-irrelevant (cutoff start-up); matches the layout silicon width.
+  xMpu sk vss vdd vdd pmos_3p3 W=0.4 L=20 m=1
+  xMsns sk nb vss vss nmos_3p3 W=2 L=1 m=1
+  xMkik na sk vss vss nmos_3p3 W=0.5 L=4 m=1
+.ends

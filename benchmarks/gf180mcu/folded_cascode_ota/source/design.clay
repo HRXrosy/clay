@@ -1,0 +1,226 @@
+package onboard.fc_ota_auto_gf180;
+pdk "gf180mcu";
+
+cell folded_cascode_ota(vinp: input, vinn: input, vout: output, ibias: bias, vdd: power_p, vss: power_n) {
+  topology {
+      device MMNbias : nmos3v {
+        drain = ibias; gate = ibias; source = vss; body = vss;
+        W = 1.65u; L = 1u;
+      }
+      device MMPfold_bias : pmos3v {
+        drain = vbias_fold; gate = vbias_fold; source = vdd; body = vdd;
+        W = 30u; L = 2u;
+      }
+      device MMNfold_bias : nmos3v {
+        drain = vbias_fold; gate = ibias; source = vss; body = vss;
+        W = 1.65u; L = 1u;
+      }
+      device MMP_vbcp_1 : pmos3v {
+        drain = vbc_p_mid; gate = vbc_p; source = vdd; body = vdd;
+        W = 4u; L = 0.5u;
+      }
+      device MMP_vbcp_2 : pmos3v {
+        drain = vbc_p; gate = vbc_p; source = vbc_p_mid; body = vdd;
+        W = 8.9u; L = 3u;
+      }
+      device MMN_vbcp_sink : nmos3v {
+        drain = vbc_p; gate = ibias; source = vss; body = vss;
+        W = 1.65u; L = 1u;
+      }
+      device MMP_vbcn_src : pmos3v {
+        drain = vbc_n; gate = vbias_fold; source = vdd; body = vdd;
+        W = 30u; L = 2u;
+      }
+      device MMN_vbcn_2 : nmos3v {
+        drain = vbc_n; gate = vbc_n; source = vbc_n_mid; body = vss;
+        W = 9.1u; L = 2u;
+      }
+      device MMN_vbcn_1 : nmos3v {
+        drain = vbc_n_mid; gate = vbc_n; source = vss; body = vss;
+        W = 0.5u; L = 1u;
+      }
+      device MN1 : nmos3v {
+        drain = vmid_left1; gate = vinp; source = ntail; body = vss;
+        W = 6.6u; L = 1u;
+      }
+      device MN2 : nmos3v {
+        drain = vmid_right1; gate = vinn; source = ntail; body = vss;
+        W = 6.6u; L = 1u;
+      }
+      device MNtail : nmos3v {
+        drain = ntail; gate = ibias; source = vss; body = vss;
+        W = 3.3u; L = 1u;
+      }
+      device MP1_bottom : pmos3v {
+        drain = vmid_left1; gate = vbias_fold; source = vdd; body = vdd;
+        W = 60u; L = 2u;
+      }
+      device MP3_bottom : pmos3v {
+        drain = vmid_right1; gate = vbias_fold; source = vdd; body = vdd;
+        W = 60u; L = 2u;
+      }
+      device MP2_top : pmos3v {
+        drain = vd_left; gate = vbc_p; source = vmid_left1; body = vdd;
+        W = 53.4u; L = 3u;
+      }
+      device MP4_top : pmos3v {
+        drain = vout; gate = vbc_p; source = vmid_right1; body = vdd;
+        W = 53.4u; L = 3u;
+      }
+      device MN5_bottom : nmos3v {
+        drain = vmid_left2; gate = vd_left; source = vss; body = vss;
+        W = 3u; L = 2u;
+      }
+      device MN7_bottom : nmos3v {
+        drain = vmid_right2; gate = vd_left; source = vss; body = vss;
+        W = 3u; L = 2u;
+      }
+      device MN6_top : nmos3v {
+        drain = vd_left; gate = vbc_n; source = vmid_left2; body = vss;
+        W = 9.1u; L = 2u;
+      }
+      device MN8_top : nmos3v {
+        drain = vout; gate = vbc_n; source = vmid_right2; body = vss;
+        W = 9.1u; L = 2u;
+      }
+    functional_group input_pair {
+      role = input_pair,
+      group = input_pair,
+      label = "Input pair",
+      group_label = "Input pair",
+      devices = (MN1, MN2),
+      intent = "two nmos with distinct gate nets (vinp, vinn) sharing source node ntail (the tail)"
+    }
+    functional_group tail_current {
+      role = tail_current,
+      group = tail_current,
+      label = "Tail current",
+      group_label = "Tail current",
+      devices = (MNtail),
+      intent = "drain on the diff-pair tail node ntail, source on rail vss"
+    }
+    functional_group current_mirror_1 {
+      role = current_mirror,
+      group = current_mirror,
+      label = "Current mirror",
+      group_label = "Current mirror",
+      devices = (MMN_vbcp_sink, MMNbias, MMNfold_bias, MNtail),
+      intent = "4 nmos sharing gate net ibias (gate=drain diode reference present)"
+    }
+    functional_group load_mirror {
+      role = load_mirror,
+      group = load_mirror,
+      label = "Load mirror",
+      group_label = "Load mirror",
+      devices = (MMP_vbcn_src, MMPfold_bias, MP1_bottom, MP3_bottom),
+      intent = "4 pmos sharing gate net vbias_fold (gate=drain diode reference present)"
+    }
+    functional_group current_mirror_2 {
+      role = current_mirror,
+      group = current_mirror,
+      label = "Current mirror",
+      group_label = "Current mirror",
+      devices = (MN5_bottom, MN7_bottom),
+      intent = "2 nmos sharing gate net vd_left (gate-tied current mirror)"
+    }
+    functional_group cascode_1 {
+      role = cascode,
+      group = cascode,
+      label = "Cascode",
+      group_label = "Cascode",
+      devices = (MP2_top, MP4_top),
+      intent = "source stacked on a signal-path drain, gate on bias net vbc_p"
+    }
+    functional_group cascode_2 {
+      role = cascode,
+      group = cascode,
+      label = "Cascode",
+      group_label = "Cascode",
+      devices = (MN6_top, MN8_top),
+      intent = "source stacked on a signal-path drain, gate on bias net vbc_n"
+    }
+    functional_group bias_tree {
+      role = bias_tree,
+      group = bias_tree,
+      label = "Bias tree",
+      group_label = "Bias tree",
+      devices = (MMN_vbcn_1, MMN_vbcn_2, MMP_vbcp_1, MMP_vbcp_2),
+      intent = "diode-connected / gate-tied devices generating the bias nets ['ibias', 'vbc_n', 'vbc_p', 'vbias_fold']"
+    }
+  }
+}
+
+layout_intent folded_cascode_ota {
+  @objective(area, minimize);
+  @place_group(nmos_band, devices=(MMN_vbcn_1, MMN_vbcn_2, MMN_vbcp_sink, MMNbias, MMNfold_bias, MN1, MN2, MN5_bottom, MN6_top, MN7_bottom, MN8_top, MNtail));
+  @place_group(pmos_band, devices=(MMP_vbcn_src, MMP_vbcp_1, MMP_vbcp_2, MMPfold_bias, MP1_bottom, MP2_top, MP3_bottom, MP4_top));
+  @array(current_mirror_2, style=shared_diffusion, order=ratio);
+  @array(load_mirror, style=shared_diffusion, order=ratio);
+  @guard_ring(group=(MN1, MN2), well=p, tie=vss, hug=tight, role=tap);
+  @guard_ring(group=(MMP_vbcn_src, MMPfold_bias, MP1_bottom, MP3_bottom), well=n, tie=vdd, hug=tight, role=tap);
+  @guard_ring(group=(MMN_vbcp_sink, MMNbias, MMNfold_bias, MNtail), well=p, tie=vss, hug=tight, role=tap);
+  @guard_ring(group=(MP2_top, MP4_top), well=n, tie=vdd, hug=tight, role=tap);
+  @trunk(vss, layer=M3, orient=H, width=0.6, edge=bottom);
+  @trunk(vdd, layer=M3, orient=H, width=0.6, edge=top);
+  @trunk(ibias, layer=M2, orient=H, width=0.5);
+  @trunk(vbc_n, layer=M2, orient=H, width=0.5);
+  @trunk(vbc_p, layer=M2, orient=H, width=0.5);
+  @trunk(vbias_fold, layer=M2, orient=H, width=0.5);
+  @wire_width(vss, 0.6u);
+  @wire_width(vdd, 0.6u);
+  // TODO: parasitic-cap budgets / area cap need a target spec
+}
+
+policy folded_cascode_ota_compact_2d {
+  @place_policy(gap = 1.8);
+  @route_policy(engine = pathfinder);
+}
+
+flow folded_cascode_ota {
+  pdk "gf180mcu";
+  steps (compile, layout, drc, lvs, pex, post, intent, sign);
+  layout = generic;
+  policy = folded_cascode_ota_compact_2d;
+}
+
+quality folded_cascode_ota {
+  @kpi(dc_gain_db, ">=", 80, unit="dB");
+  @kpi(gbw_hz, ">=", 10000000, unit="Hz");
+  @kpi(pm_deg, ">=", 60, unit="deg");
+  @kpi(idd_a, "<=", 0.000303, unit="A");
+  @require(drc_clean);
+}
+
+annotate folded_cascode_ota {
+  @cell: @symmetric(vertical);
+  MN1: @matching(MN2);
+  MN2: @matching(MN1);
+  MP2_top: @matching(MP4_top);
+  MP4_top: @matching(MP2_top);
+  MN6_top: @matching(MN8_top);
+  MN8_top: @matching(MN6_top);
+  MMNbias: @dense_contacts;
+  MMNfold_bias: @dense_contacts;
+  MMP_vbcp_1: @dense_contacts;
+  MMP_vbcp_2: @dense_contacts;
+  MMN_vbcp_sink: @dense_contacts;
+  MMN_vbcn_2: @dense_contacts;
+  MMN_vbcn_1: @dense_contacts;
+  MN1: @dense_contacts;
+  MN2: @dense_contacts;
+  MNtail: @dense_contacts;
+  MP2_top: @dense_contacts;
+  MP4_top: @dense_contacts;
+  MN6_top: @dense_contacts;
+  MN8_top: @dense_contacts;
+  MMPfold_bias: @fold(15.01);
+  MMP_vbcn_src: @fold(15.01);
+  MN1: @fold(3.31);
+  MN2: @fold(3.31);
+  MP1_bottom: @fold(15.01);
+  MP3_bottom: @fold(15.01);
+  MP2_top: @fold(13.36);
+  MP4_top: @fold(13.36);
+  MN5_bottom: @fold(1.51);
+  MN7_bottom: @fold(1.51);
+}

@@ -1,0 +1,297 @@
+package cases.unseen_benchmarks.telescopic_ota_gf180;
+pdk "gf180mcu";
+
+cell telescopic_ota_gf180(vinp: input, vinn: input, voutp: output, voutn: output, vcm: inout, ibias: bias, vdd: power_p, vss: power_n) {
+  topology {
+      device MNB_DIO : nmos3v {
+        drain = ibias; gate = ibias; source = vss; body = vss;
+        W = 10u; L = 1u;
+      }
+      device MNB_P : nmos3v {
+        drain = vbp_s; gate = ibias; source = vss; body = vss;
+        W = 10u; L = 1u;
+      }
+      device MPB_DIO : pmos3v {
+        drain = vbp_s; gate = vbp_s; source = vdd; body = vdd;
+        W = 20u; L = 1u;
+      }
+      device MNB_PC : nmos3v {
+        drain = vb_pcas; gate = ibias; source = vss; body = vss;
+        W = 15u; L = 1u;
+      }
+      device MPB_PC : pmos3v {
+        drain = vb_pcas; gate = vb_pcas; source = vdd; body = vdd;
+        W = 3u; L = 2u;
+      }
+      device MPB_NC : pmos3v {
+        drain = vb_ncas; gate = vbp_s; source = vdd; body = vdd;
+        W = 20u; L = 1u;
+      }
+      device MNB_NC : nmos3v {
+        drain = vb_ncas; gate = vb_ncas; source = vss; body = vss;
+        W = 2.5u; L = 2u;
+      }
+      device MPTAIL : pmos3v {
+        drain = ntail; gate = vbp_s; source = vdd; body = vdd;
+        W = 80u; L = 1u;
+      }
+      device MPIN_P : pmos3v {
+        drain = nsn; gate = vinp; source = ntail; body = ntail;
+        W = 100u; L = 1u;
+      }
+      device MPIN_N : pmos3v {
+        drain = nsp; gate = vinn; source = ntail; body = ntail;
+        W = 100u; L = 1u;
+      }
+      device MPCAS_P : pmos3v {
+        drain = voutp; gate = vb_pcas; source = nsp; body = vdd;
+        W = 80u; L = 1u;
+      }
+      device MPCAS_N : pmos3v {
+        drain = voutn; gate = vb_pcas; source = nsn; body = vdd;
+        W = 80u; L = 1u;
+      }
+      device MNCAS_P : nmos3v {
+        drain = voutp; gate = vb_ncas; source = ndp; body = vss;
+        W = 40u; L = 1u;
+      }
+      device MNCAS_N : nmos3v {
+        drain = voutn; gate = vb_ncas; source = ndn; body = vss;
+        W = 40u; L = 1u;
+      }
+      device MNLOAD_P : nmos3v {
+        drain = ndp; gate = vcmfb_ctl; source = vss; body = vss;
+        W = 20u; L = 2u;
+      }
+      device MNLOAD_N : nmos3v {
+        drain = ndn; gate = vcmfb_ctl; source = vss; body = vss;
+        W = 20u; L = 2u;
+      }
+      device MCM_TA : nmos3v {
+        drain = ncm_tailA; gate = ibias; source = vss; body = vss;
+        W = 10u; L = 1u;
+      }
+      device MCM_A1 : nmos3v {
+        drain = ncm_d; gate = voutp; source = ncm_tailA; body = vss;
+        W = 10u; L = 2u;
+      }
+      device MCM_A2 : nmos3v {
+        drain = vcmfb_ctl; gate = vcm; source = ncm_tailA; body = vss;
+        W = 10u; L = 2u;
+      }
+      device MCM_TB : nmos3v {
+        drain = ncm_tailB; gate = ibias; source = vss; body = vss;
+        W = 10u; L = 1u;
+      }
+      device MCM_B1 : nmos3v {
+        drain = ncm_d; gate = voutn; source = ncm_tailB; body = vss;
+        W = 10u; L = 2u;
+      }
+      device MCM_B2 : nmos3v {
+        drain = vcmfb_ctl; gate = vcm; source = ncm_tailB; body = vss;
+        W = 10u; L = 2u;
+      }
+      device MCM_LP : pmos3v {
+        drain = ncm_d; gate = ncm_d; source = vdd; body = vdd;
+        W = 16u; L = 1u;
+      }
+      device MCM_LN : pmos3v {
+        drain = vcmfb_ctl; gate = ncm_d; source = vdd; body = vdd;
+        W = 16u; L = 1u;
+      }
+      cap CC_P {
+        p = voutp; n = vss;
+        value = 0.5p;
+      }
+      cap CC_N {
+        p = voutn; n = vss;
+        value = 0.5p;
+      }
+    functional_group input_pair_1 {
+      role = input_pair,
+      group = input_pair,
+      label = "Input pair",
+      group_label = "Input pair",
+      devices = (MPIN_P, MPIN_N),
+      intent = "two pmos with distinct gate nets (vinp, vinn) sharing source node ntail (the tail)"
+    }
+    functional_group input_pair_2 {
+      role = input_pair,
+      group = input_pair,
+      label = "Input pair",
+      group_label = "Input pair",
+      devices = (MCM_A1, MCM_A2),
+      intent = "two nmos with distinct gate nets (voutp, vcm) sharing source node ncm_tailA (the tail)"
+    }
+    functional_group input_pair_3 {
+      role = input_pair,
+      group = input_pair,
+      label = "Input pair",
+      group_label = "Input pair",
+      devices = (MCM_B1, MCM_B2),
+      intent = "two nmos with distinct gate nets (voutn, vcm) sharing source node ncm_tailB (the tail)"
+    }
+    functional_group tail_current_1 {
+      role = tail_current,
+      group = tail_current,
+      label = "Tail current",
+      group_label = "Tail current",
+      devices = (MPTAIL),
+      intent = "drain on the diff-pair tail node ntail, source on rail vdd"
+    }
+    functional_group tail_current_2 {
+      role = tail_current,
+      group = tail_current,
+      label = "Tail current",
+      group_label = "Tail current",
+      devices = (MCM_TA),
+      intent = "drain on the diff-pair tail node ncm_tailA, source on rail vss"
+    }
+    functional_group tail_current_3 {
+      role = tail_current,
+      group = tail_current,
+      label = "Tail current",
+      group_label = "Tail current",
+      devices = (MCM_TB),
+      intent = "drain on the diff-pair tail node ncm_tailB, source on rail vss"
+    }
+    functional_group current_mirror_1 {
+      role = current_mirror,
+      group = current_mirror,
+      label = "Current mirror",
+      group_label = "Current mirror",
+      devices = (MCM_TA, MCM_TB, MNB_DIO, MNB_P, MNB_PC),
+      intent = "5 nmos sharing gate net ibias (gate=drain diode reference present)"
+    }
+    functional_group current_mirror_2 {
+      role = current_mirror,
+      group = current_mirror,
+      label = "Current mirror",
+      group_label = "Current mirror",
+      devices = (MPB_DIO, MPB_NC, MPTAIL),
+      intent = "3 pmos sharing gate net vbp_s (gate=drain diode reference present)"
+    }
+    functional_group current_mirror_3 {
+      role = current_mirror,
+      group = current_mirror,
+      label = "Current mirror",
+      group_label = "Current mirror",
+      devices = (MNLOAD_N, MNLOAD_P),
+      intent = "2 nmos sharing gate net vcmfb_ctl (gate-tied current mirror)"
+    }
+    functional_group current_mirror_4 {
+      role = current_mirror,
+      group = current_mirror,
+      label = "Current mirror",
+      group_label = "Current mirror",
+      devices = (MCM_LN, MCM_LP),
+      intent = "2 pmos sharing gate net ncm_d (gate=drain diode reference present)"
+    }
+    functional_group cascode_1 {
+      role = cascode,
+      group = cascode,
+      label = "Cascode",
+      group_label = "Cascode",
+      devices = (MPCAS_N, MPCAS_P),
+      intent = "source stacked on a signal-path drain, gate on bias net vb_pcas"
+    }
+    functional_group cascode_2 {
+      role = cascode,
+      group = cascode,
+      label = "Cascode",
+      group_label = "Cascode",
+      devices = (MNCAS_N, MNCAS_P),
+      intent = "source stacked on a signal-path drain, gate on bias net vb_ncas"
+    }
+    functional_group bias_tree {
+      role = bias_tree,
+      group = bias_tree,
+      label = "Bias tree",
+      group_label = "Bias tree",
+      devices = (MNB_NC, MPB_PC),
+      intent = "diode-connected / gate-tied devices generating the bias nets ['ibias', 'ncm_d', 'vb_ncas', 'vb_pcas', 'vbp_s']"
+    }
+    functional_group compensation_1 {
+      role = compensation,
+      group = compensation,
+      label = "Compensation",
+      group_label = "Compensation",
+      devices = (CC_P),
+      intent = "cap CC_P on nets ['voutp', 'vss'] forming a Miller compensation branch"
+    }
+    functional_group compensation_2 {
+      role = compensation,
+      group = compensation,
+      label = "Compensation",
+      group_label = "Compensation",
+      devices = (CC_N),
+      intent = "cap CC_N on nets ['voutn', 'vss'] forming a Miller compensation branch"
+    }
+  }
+}
+
+layout_intent telescopic_ota_gf180 {
+  @place_group(floorplan_row0, devices=(MCM_TA, MCM_TB, MNB_NC, MPB_PC, MPTAIL), row=0);
+  @place_group(floorplan_row1, devices=(MCM_LN, MCM_LP, MNB_DIO, MNB_P, MNB_PC, MNLOAD_N, MNLOAD_P, MPB_DIO, MPB_NC), row=1);
+  @place_group(floorplan_row2, devices=(MCM_A1, MCM_A2, MCM_B1, MCM_B2, MPIN_N, MPIN_P), row=2);
+  @place_group(floorplan_row3, devices=(MNCAS_N, MNCAS_P, MPCAS_N, MPCAS_P), row=3);
+  @place_group(floorplan_row6, devices=(CC_N, CC_P), row=6);
+  @guard_ring(group=(MPIN_N, MPIN_P), well=n, tie=ntail, hug=tight, role=tap);
+  @guard_ring(group=(MPCAS_N, MPCAS_P), well=n, tie=vdd, hug=tight, role=tap);
+  @guard_ring(group=(MNCAS_N, MNCAS_P), well=p, tie=vss, hug=tight, role=tap);
+  @guard_ring(group=(MCM_LN, MCM_LP, MPB_DIO, MPB_NC), well=n, tie=vdd, hug=tight, role=tap);
+  @guard_ring(group=(MNB_DIO, MNB_P, MNB_PC, MNLOAD_N, MNLOAD_P), well=p, tie=vss, hug=tight, role=tap);
+  @guard_ring(group=(MCM_A1, MCM_A2, MCM_B1, MCM_B2), well=p, tie=vss, hug=tight, role=tap);
+  @trunk(vss, layer=M3, orient=H, width=1.3, edge=bottom);
+  @trunk(vdd, layer=M3, orient=H, width=1.2, edge=top);
+  @trunk(ibias, layer=M2, orient=H, width=0.5);
+  @trunk(vb_ncas, layer=M2, orient=H, width=0.5);
+  @trunk(vb_pcas, layer=M2, orient=H, width=0.5);
+  @trunk(vbp_s, layer=M2, orient=H, width=0.5);
+  @wire_width(vss, 1.3u);
+  @wire_width(vdd, 1.2u);
+  @wire_width(ntail, 0.6u);
+  @wire_width(voutn, 0.6u);
+  @wire_width(voutp, 0.6u);
+  // TODO: parasitic-cap budgets / area cap need a target spec
+}
+
+flow telescopic_ota_gf180 {
+  pdk "gf180mcu";
+  steps (compile, layout, drc, lvs, pex, post, intent, sign);
+  layout = generic;
+}
+
+quality telescopic_ota_gf180 {
+  @kpi(dc_gain_db, ">=", 65, unit="dB");
+  @kpi(gbw_hz, ">=", 25000000, unit="Hz");
+  @kpi(pm_deg, ">=", 60, unit="deg");
+  @kpi(power_w, "<=", 0.002, unit="W");
+  @kpi(idd_a, "<=", 0.0006, unit="A");
+  @require(drc_clean);
+}
+
+annotate telescopic_ota_gf180 {
+  @cell: @symmetric(vertical);
+  MPIN_P: @matching(MPIN_N);
+  MPIN_N: @matching(MPIN_P);
+  MCM_A1: @matching(MCM_A2);
+  MCM_A2: @matching(MCM_A1);
+  MCM_B1: @matching(MCM_B2);
+  MCM_B2: @matching(MCM_B1);
+  MNLOAD_N: @matching(MNLOAD_P);
+  MNLOAD_P: @matching(MNLOAD_N);
+  MCM_LN: @matching(MCM_LP);
+  MCM_LP: @matching(MCM_LN);
+  MPCAS_N: @matching(MPCAS_P);
+  MPCAS_P: @matching(MPCAS_N);
+  MNCAS_N: @matching(MNCAS_P);
+  MNCAS_P: @matching(MNCAS_N);
+  MPTAIL: @fold(16.01);
+  MPIN_P: @fold(12.51);
+  MPIN_N: @fold(12.51);
+  MPCAS_P: @fold(20.01);
+  MPCAS_N: @fold(20.01);
+  MNCAS_P: @fold(20.01);
+  MNCAS_N: @fold(20.01);
+}
