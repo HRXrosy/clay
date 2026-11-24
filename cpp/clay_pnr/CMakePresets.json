@@ -1,0 +1,62 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 20,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "win-msvc-release",
+      "displayName": "Windows MSVC x64 Release (C++20 /W4)",
+      "generator": "Visual Studio 17 2022",
+      "architecture": "x64",
+      "binaryDir": "${sourceDir}/build/cmake-win-release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CLAY_PNR_BUILD_PYTHON": "ON",
+        "CLAY_PNR_BUILD_TESTS": "ON"
+      }
+    },
+    {
+      "name": "posix-ninja-release",
+      "displayName": "POSIX Ninja Release (C++20 -Wall -Wextra)",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/cmake-posix-release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "CLAY_PNR_BUILD_PYTHON": "ON",
+        "CLAY_PNR_BUILD_TESTS": "ON"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "win-msvc-release",
+      "configurePreset": "win-msvc-release",
+      "configuration": "Release"
+    },
+    {
+      "name": "posix-ninja-release",
+      "configurePreset": "posix-ninja-release"
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "win-msvc-release",
+      "configurePreset": "win-msvc-release",
+      "configuration": "Release",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "posix-ninja-release",
+      "configurePreset": "posix-ninja-release",
+      "output": {
+        "outputOnFailure": true
+      }
+    }
+  ]
+}
+

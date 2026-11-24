@@ -1,0 +1,54 @@
+* ldo_gf180 - PMOS-pass LDO ported to gf180mcu 3.3V (Automated Clay Flow Package)
+* Preserves circuits/ldo/ldo_gf180.cir topology & sizing verbatim using explicit
+* physical SI units (scale=1.0) so schematic pre-sim, geometric PEX, and Docker
+* Magic R+C PEX share the exact same unit convention.
+* Spec: Vout >= 2.45 V, PSRR >= 60 dB, DC_Gain >= 60 dB, Power <= 1 mW
+
+.subckt ldo_gf180 vin vout vref vfb vfbs vss
+
+.param RB  = 664k
+.param WD  = 20u
+.param WCS = 40u
+.param WP  = 100u
+.param LP  = 0.5u
+
+* -- Bias-set resistor (REAL ppolyf_u, 664k): vin -> ibias ---------------
+Rbias_ref  vin    ibias  {RB}
+
+* -- Bias diode ---------------------------------------------------------
+xMbias   ibias  ibias  vss  vss  nmos_3p3  W={WD}  L=1u
+
+* -- 5T-OTA Stage 1 (NMOS input) ----------------------------------------
+xM5      ntail  ibias  vss   vss  nmos_3p3  W={WD}  L=1u
+xM1      vd1    vref   ntail vss  nmos_3p3  W={WD}  L=1u
+xM2      vd2    vfb    ntail vss  nmos_3p3  W={WD}  L=1u
+xM3      vd1    vd1    vin   vin  pmos_3p3  W={WD}  L=1u
+xM4      vd2    vd1    vin   vin  pmos_3p3  W={WD}  L=1u
+
+* -- PMOS-CS Stage 2 ----------------------------------------------------
+xM6      vg_pass vd2   vin   vin  pmos_3p3  W={WCS}  L=1u
+xM7      vg_pass ibias vss   vss  nmos_3p3  W={WCS}  L=1u
+
+* -- Miller compensation capacitor (REAL GF180 5LM Option-B MIM, 2 pF) --
+Cc      vg_pass vout  2p
+
+* -- PMOS pass FET (8 parallel 100u/0.5u units) -------------------------
+xMP0     vout    vg_pass vin  vin  pmos_3p3  W={WP}  L={LP}
+xMP1     vout    vg_pass vin  vin  pmos_3p3  W={WP}  L={LP}
+xMP2     vout    vg_pass vin  vin  pmos_3p3  W={WP}  L={LP}
+xMP3     vout    vg_pass vin  vin  pmos_3p3  W={WP}  L={LP}
+xMP4     vout    vg_pass vin  vin  pmos_3p3  W={WP}  L={LP}
+xMP5     vout    vg_pass vin  vin  pmos_3p3  W={WP}  L={LP}
+xMP6     vout    vg_pass vin  vin  pmos_3p3  W={WP}  L={LP}
+xMP7     vout    vg_pass vin  vin  pmos_3p3  W={WP}  L={LP}
+
+* -- Resistive feedback divider (REAL ppolyf_u quartet, 1:1 = 100k:100k) -
+Rfb1a   vout      vfb_mid_A 50k
+Rfb1b   vfb_mid_A vfbs      50k
+Rfb2a   vfbs      vfb_mid_B 50k
+Rfb2b   vfb_mid_B vss       50k
+
+* -- Minimum-load bleeder -----------------------------------------------
+xMbleed  vout   ibias  vss   vss  nmos_3p3  W={WCS}  L=1u
+
+.ends ldo_gf180

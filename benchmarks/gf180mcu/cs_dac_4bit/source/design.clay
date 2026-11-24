@@ -1,0 +1,223 @@
+package cases.unseen_benchmarks.cs_dac_4bit_gf180;
+pdk "gf180mcu";
+
+cell cs_dac_4bit_gf180(ioutp: output, ioutn: output, ibias: bias, b0: inout, b0b: inout, b1: inout, b1b: inout, b2: inout, b2b: inout, b3: inout, b3b: inout, vdd: power_p, vss: power_n) {
+  topology {
+      device MNBIAS : nmos3v {
+        drain = ibias; gate = ibias; source = vss; body = vss;
+        W = 12u; L = 2u;
+      }
+      device MNB_MIR : nmos3v {
+        drain = vbp; gate = ibias; source = vss; body = vss;
+        W = 12u; L = 2u;
+      }
+      device MPB_DIO : pmos3v {
+        drain = vbp; gate = vbp; source = vdd; body = vdd;
+        W = 24u; L = 1u;
+      }
+      device MPB_CAS : pmos3v {
+        drain = vb_cas; gate = vbp; source = vdd; body = vdd;
+        W = 24u; L = 1u;
+      }
+      device MCB_BOT : nmos3v {
+        drain = nb_bot; gate = ibias; source = vss; body = vss;
+        W = 12u; L = 2u;
+      }
+      device MCB_DIO : nmos3v {
+        drain = vb_cas; gate = vb_cas; source = nb_bot; body = vss;
+        W = 8u; L = 1u;
+      }
+      device MI0 : nmos3v {
+        drain = ns0; gate = ibias; source = vss; body = vss;
+        W = 12u; L = 2u;
+      }
+      device MI1 : nmos3v {
+        drain = ns1; gate = ibias; source = vss; body = vss;
+        W = 24u; L = 2u;
+      }
+      device MI2 : nmos3v {
+        drain = ns2; gate = ibias; source = vss; body = vss;
+        W = 48u; L = 2u;
+      }
+      device MI3 : nmos3v {
+        drain = ns3; gate = ibias; source = vss; body = vss;
+        W = 96u; L = 2u;
+      }
+      device MC0 : nmos3v {
+        drain = nc0; gate = vb_cas; source = ns0; body = vss;
+        W = 8u; L = 1u;
+      }
+      device MC1 : nmos3v {
+        drain = nc1; gate = vb_cas; source = ns1; body = vss;
+        W = 16u; L = 1u;
+      }
+      device MC2 : nmos3v {
+        drain = nc2; gate = vb_cas; source = ns2; body = vss;
+        W = 32u; L = 1u;
+      }
+      device MC3 : nmos3v {
+        drain = nc3; gate = vb_cas; source = ns3; body = vss;
+        W = 64u; L = 1u;
+      }
+      device MSW0P : nmos3v {
+        drain = ioutp; gate = b0; source = nc0; body = vss;
+        W = 8u; L = 0.5u;
+      }
+      device MSW0N : nmos3v {
+        drain = ioutn; gate = b0b; source = nc0; body = vss;
+        W = 8u; L = 0.5u;
+      }
+      device MSW1P : nmos3v {
+        drain = ioutp; gate = b1; source = nc1; body = vss;
+        W = 16u; L = 0.5u;
+      }
+      device MSW1N : nmos3v {
+        drain = ioutn; gate = b1b; source = nc1; body = vss;
+        W = 16u; L = 0.5u;
+      }
+      device MSW2P : nmos3v {
+        drain = ioutp; gate = b2; source = nc2; body = vss;
+        W = 32u; L = 0.5u;
+      }
+      device MSW2N : nmos3v {
+        drain = ioutn; gate = b2b; source = nc2; body = vss;
+        W = 32u; L = 0.5u;
+      }
+      device MSW3P : nmos3v {
+        drain = ioutp; gate = b3; source = nc3; body = vss;
+        W = 64u; L = 0.5u;
+      }
+      device MSW3N : nmos3v {
+        drain = ioutn; gate = b3b; source = nc3; body = vss;
+        W = 64u; L = 0.5u;
+      }
+    functional_group input_pair_1 {
+      role = input_pair,
+      group = input_pair,
+      label = "Input pair",
+      group_label = "Input pair",
+      devices = (MSW0P, MSW0N),
+      intent = "two nmos with distinct gate nets (b0, b0b) sharing source node nc0 (the tail)"
+    }
+    functional_group input_pair_2 {
+      role = input_pair,
+      group = input_pair,
+      label = "Input pair",
+      group_label = "Input pair",
+      devices = (MSW1P, MSW1N),
+      intent = "two nmos with distinct gate nets (b1, b1b) sharing source node nc1 (the tail)"
+    }
+    functional_group input_pair_3 {
+      role = input_pair,
+      group = input_pair,
+      label = "Input pair",
+      group_label = "Input pair",
+      devices = (MSW2P, MSW2N),
+      intent = "two nmos with distinct gate nets (b2, b2b) sharing source node nc2 (the tail)"
+    }
+    functional_group input_pair_4 {
+      role = input_pair,
+      group = input_pair,
+      label = "Input pair",
+      group_label = "Input pair",
+      devices = (MSW3P, MSW3N),
+      intent = "two nmos with distinct gate nets (b3, b3b) sharing source node nc3 (the tail)"
+    }
+    functional_group current_mirror {
+      role = current_mirror,
+      group = current_mirror,
+      label = "Current mirror",
+      group_label = "Current mirror",
+      devices = (MCB_BOT, MI0, MI1, MI2, MI3, MNBIAS, MNB_MIR),
+      intent = "7 nmos sharing gate net ibias (gate=drain diode reference present)"
+    }
+    functional_group load_mirror {
+      role = load_mirror,
+      group = load_mirror,
+      label = "Load mirror",
+      group_label = "Load mirror",
+      devices = (MPB_CAS, MPB_DIO),
+      intent = "2 pmos sharing gate net vbp (gate=drain diode reference present)"
+    }
+    functional_group cascode {
+      role = cascode,
+      group = cascode,
+      label = "Cascode",
+      group_label = "Cascode",
+      devices = (MC0, MC1, MC2, MC3),
+      intent = "source stacked on a signal-path drain, gate on bias net vb_cas"
+    }
+    functional_group bias_tree {
+      role = bias_tree,
+      group = bias_tree,
+      label = "Bias tree",
+      group_label = "Bias tree",
+      devices = (MCB_DIO),
+      intent = "diode-connected / gate-tied devices generating the bias nets ['ibias', 'vb_cas', 'vbp']"
+    }
+  }
+}
+
+layout_intent cs_dac_4bit_gf180 {
+  @place_group(floorplan_row0, devices=(MCB_DIO), row=0);
+  @place_group(floorplan_row1, devices=(MCB_BOT, MI0, MI1, MI2, MI3, MNBIAS, MNB_MIR), row=1);
+  @place_group(floorplan_row2, devices=(MSW0N, MSW0P, MSW1N, MSW1P, MSW2N, MSW2P, MSW3N, MSW3P), row=2);
+  @place_group(floorplan_row3, devices=(MC0, MC1, MC2, MC3), row=3);
+  @place_group(floorplan_row4, devices=(MPB_CAS, MPB_DIO), row=4);
+  @guard_ring(group=(MC0, MC1, MC2, MC3), well=p, tie=vss, hug=tight, role=tap);
+  @guard_ring(group=(MCB_BOT, MI0, MI1, MI2, MI3, MNBIAS, MNB_MIR), well=p, tie=vss, hug=tight, role=tap);
+  @guard_ring(group=(MSW0N, MSW0P, MSW1N, MSW1P, MSW2N, MSW2P, MSW3N, MSW3P), well=p, tie=vss, hug=tight, role=tap);
+  @guard_ring(group=(MPB_CAS, MPB_DIO), well=n, tie=vdd, hug=tight, role=tap);
+  @trunk(vss, layer=M3, orient=H, width=5.4, edge=bottom);
+  @trunk(ioutn, layer=M3, orient=H, width=2.5);
+  @trunk(ioutp, layer=M3, orient=H, width=2.5);
+  @trunk(vdd, layer=M3, orient=H, width=0.7, edge=top);
+  @trunk(ibias, layer=M2, orient=H, width=0.7);
+  @trunk(vb_cas, layer=M2, orient=H, width=0.5);
+  @wire_width(vss, 5.4u);
+  @wire_width(ioutn, 2.5u);
+  @wire_width(ioutp, 2.5u);
+  @wire_width(nc3, 2.4u);
+  @wire_width(ns3, 2.4u);
+  @wire_width(nc2, 1.2u);
+  @wire_width(ns2, 1.2u);
+  @wire_width(vdd, 0.7u);
+  // TODO: parasitic-cap budgets / area cap need a target spec
+}
+
+flow cs_dac_4bit_gf180 {
+  pdk "gf180mcu";
+  steps (compile, layout, drc, lvs, pex, post, intent, sign);
+  layout = generic;
+}
+
+quality cs_dac_4bit_gf180 {
+  @kpi(power_w, "<=", 0.008, unit="W");
+  @kpi(idd_a, "<=", 0.0025, unit="A");
+  @require(drc_clean);
+}
+
+annotate cs_dac_4bit_gf180 {
+  @cell: @symmetric(vertical);
+  MSW0P: @matching(MSW0N);
+  MSW0N: @matching(MSW0P);
+  MSW1P: @matching(MSW1N);
+  MSW1N: @matching(MSW1P);
+  MSW2P: @matching(MSW2N);
+  MSW2N: @matching(MSW2P);
+  MSW3P: @matching(MSW3N);
+  MSW3N: @matching(MSW3P);
+  MPB_CAS: @matching(MPB_DIO);
+  MPB_DIO: @matching(MPB_CAS);
+  MPB_DIO: @fold(20);
+  MPB_CAS: @fold(20);
+  MI1: @fold(20);
+  MI2: @fold(20);
+  MI3: @fold(16);
+  MC2: @fold(20);
+  MC3: @fold(16);
+  MSW2P: @fold(20);
+  MSW2N: @fold(20);
+  MSW3P: @fold(16);
+  MSW3N: @fold(16);
+}

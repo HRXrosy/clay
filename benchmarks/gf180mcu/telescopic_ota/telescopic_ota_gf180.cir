@@ -1,0 +1,56 @@
+* Unseen Benchmark 2: Fully-Differential Telescopic Cascode OTA with CMFB + MIM Compensation (gf180mcu 3.3V)
+* Cell: telescopic_ota_gf180
+*
+* Topology:
+*   - Bias generator: NMOS reference diode (MNB_DIO), PMOS bias mirror (MNB_P, MPB_DIO),
+*     PMOS cascode bias leg (MNB_PC, MPB_PC), NMOS cascode bias leg (MPB_NC, MNB_NC).
+*   - Telescopic core: PMOS tail current source (MPTAIL), PMOS differential input pair
+*     with floating source-tied N-well (MPIN_P, MPIN_N; s=b=ntail), PMOS cascode pair
+*     (MPCAS_P, MPCAS_N), NMOS cascode pair (MNCAS_P, MNCAS_N), NMOS active loads
+*     (MNLOAD_P, MNLOAD_N).
+*   - Dual-diff-pair continuous-time CMFB (MCM_TA/A1/A2, MCM_TB/B1/B2, MCM_LP/LN)
+*     sensing voutp/voutn with zero resistive loading on the high-Z output nodes.
+*   - Matched differential MIM stabilization/compensation capacitors (CC_P, CC_N = 0.5 pF each)
+*     exercising GF180 Option-B MIM extraction and symmetric high-Z routing.
+*
+* Spec: Gain >= 65 dB, GBW >= 25 MHz, PM >= 60 deg, Power <= 2 mW, Idd <= 600 uA
+*
+* Ports: vinp vinn voutp voutn vcm ibias vdd vss
+
+.subckt telescopic_ota_gf180 vinp vinn voutp voutn vcm ibias vdd vss
+
+* --- Bias mirrors and cascode reference generators ---
+xMNB_DIO ibias   ibias   vss vss nmos_3p3 W=10u  L=1u
+xMNB_P   vbp_s   ibias   vss vss nmos_3p3 W=10u  L=1u
+xMPB_DIO vbp_s   vbp_s   vdd vdd pmos_3p3 W=20u  L=1u
+xMNB_PC  vb_pcas ibias   vss vss nmos_3p3 W=15u  L=1u
+xMPB_PC  vb_pcas vb_pcas vdd vdd pmos_3p3 W=3u   L=2u
+xMPB_NC  vb_ncas vbp_s   vdd vdd pmos_3p3 W=20u  L=1u
+xMNB_NC  vb_ncas vb_ncas vss vss nmos_3p3 W=2.5u L=2u
+
+* --- Core telescopic cascode amplifier (PMOS input with isolated source-tied well) ---
+xMPTAIL   ntail vbp_s     vdd   vdd   pmos_3p3 W=80u  L=1u
+xMPIN_P   nsn   vinp      ntail ntail pmos_3p3 W=100u L=1u
+xMPIN_N   nsp   vinn      ntail ntail pmos_3p3 W=100u L=1u
+xMPCAS_P  voutp vb_pcas   nsp   vdd   pmos_3p3 W=80u  L=1u
+xMPCAS_N  voutn vb_pcas   nsn   vdd   pmos_3p3 W=80u  L=1u
+xMNCAS_P  voutp vb_ncas   ndp   vss   nmos_3p3 W=40u  L=1u
+xMNCAS_N  voutn vb_ncas   ndn   vss   nmos_3p3 W=40u  L=1u
+xMNLOAD_P ndp   vcmfb_ctl vss   vss   nmos_3p3 W=20u  L=2u
+xMNLOAD_N ndn   vcmfb_ctl vss   vss   nmos_3p3 W=20u  L=2u
+
+* --- Dual-diff-pair continuous-time CMFB amplifier ---
+xMCM_TA   ncm_tailA ibias     vss       vss nmos_3p3 W=10u L=1u
+xMCM_A1   ncm_d     voutp     ncm_tailA vss nmos_3p3 W=10u L=2u
+xMCM_A2   vcmfb_ctl vcm       ncm_tailA vss nmos_3p3 W=10u L=2u
+xMCM_TB   ncm_tailB ibias     vss       vss nmos_3p3 W=10u L=1u
+xMCM_B1   ncm_d     voutn     ncm_tailB vss nmos_3p3 W=10u L=2u
+xMCM_B2   vcmfb_ctl vcm       ncm_tailB vss nmos_3p3 W=10u L=2u
+xMCM_LP   ncm_d     ncm_d     vdd       vdd pmos_3p3 W=16u L=1u
+xMCM_LN   vcmfb_ctl ncm_d     vdd       vdd pmos_3p3 W=16u L=1u
+
+* --- Matched differential compensation MIM capacitors (500 fF each) ---
+CC_P voutp vss 0.5p
+CC_N voutn vss 0.5p
+
+.ends telescopic_ota_gf180

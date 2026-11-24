@@ -1,0 +1,22 @@
+schema: clay.case/v1
+id: telescopic_ota_gf180
+title: telescopic_ota_gf180
+maturity: L1_PARSE
+source:
+  clay: source/design.clay
+  top_cell: telescopic_ota_gf180
+metadata:
+  pdk: gf180mcu
+  mim_option: B
+  mim_cap: "2"
+  metal_level: 5LM
+  source_spice: benchmarks/gf180mcu/telescopic_ota/telescopic_ota_gf180.cir
+  presim_module: benchmarks.gf180mcu.telescopic_ota.scripts.presim_driver
+  postsim_module: benchmarks.gf180mcu.telescopic_ota.scripts.postsim_driver
+  postsim_function: run_post_kpis
+  testbenches:
+    - tb_telescopic_ota.sp
+  intent_flow:
+    schema: clay.intent-flow/v1
+    variant: current
+    mode: generate

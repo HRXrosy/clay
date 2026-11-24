@@ -1,0 +1,292 @@
+// AnalogGym benchmark 11: ldo_simple (Low Dropout Regulator).
+//
+// First non-amplifier AnalogGym benchmark expressed in Clay. The
+// previous ten AnalogGym benchmarks (NMCF, AFFC, TCFC, DFCFC1, SMC,
+// CFCC, DFCFC2, PFC, ACBC, NMCNR) are all 3-stage opamp variants that
+// share Clay's `nested_miller_3stage_feedforward` stage style. The LDO
+// is structurally different — there is no equivalent stage template
+// (Clay's eight built-in stages are all op-amp variants). So instead
+// of adding a one-off `ldo_pmos_pass` Python builder, this benchmark
+// uses Clay's v0.0.28 DEVICE PRIMITIVES path: the topology is declared
+// device-by-device directly in `.clay` text, with no Python wrapper.
+//
+// This is the test of whether v0.0.28 device primitives generalize
+// beyond op-amps. The build path here is:
+//   parser → primitive-cell compiler → ngspice driver
+// — same as `in_clay_topology_demo.clay`, just with a structurally
+// different topology underneath.
+//
+// AnalogGym source files (sky130):
+//   Netlist:    AnalogGym/Low Dropout Regulator/spice_netlist/ldo_simple.txt
+//   Variables:  AnalogGym/Low Dropout Regulator/design_variables/ldo_simple.txt
+//   Dev params: AnalogGym/Low Dropout Regulator/spice_netlist/ldo_simple_dev_params.spice
+//   Testbench:  AnalogGym/Low Dropout Regulator/ldo_spice_testbench/ldo_simple_acdc.cir
+//
+// Topology (6 transistors + 1 feedback compensation network):
+//
+//                       vdd ─────────────┬───────────────┐
+//                                        │               │
+//                                       M4         M6 (PMOS pass, M=360)
+//                                       diode            │
+//                                        │               │
+//                                       net1 ── M3 ──── vout1 ─── out (= Vreg)
+//                                        │       │              │
+//                          (inp/vref) ── M1     M2 ── inn (= Vfb)│
+//                                        │       │              │
+//                                        └─net2──┘              │
+//                                            │                  │
+//                                           M5 (NMOS tail, M=1) │
+//                                            │     gate = nbias │
+//                                           vss                 │
+//                                                               │
+//                                       Cfb ── fb_mid ── Rfb ── vout1
+//                                                       │
+//                                                      out
+//
+// Element roles:
+//   M1, M2  — NMOS-input differential pair (error amp). Gates take
+//             inp/inn = vref/Vfb. Common source at net2.
+//   M3, M4  — PMOS current-mirror load. M4 is diode-connected at
+//             net1 (gate=drain=net1, source=vdd). M3 mirrors, with
+//             drain = vout1 (high-impedance output of error amp).
+//   M5      — NMOS tail current source. Gate driven by internal
+//             `nbias` rail (replaces AnalogGym's external Vb port).
+//   M6      — PMOS pass transistor, the LDO's series regulator
+//             element. Drain = `out` (= Vreg), source = vdd, gate =
+//             vout1 (error amp output, in inverting feedback sense
+//             via the loop).
+//   Cfb, Rfb — RC feedback-compensation network between out and the
+//             error amp output (vout1). Splits a series RC from
+//             vout1 → fb_mid → out, creating a left-half-plane zero
+//             that stabilizes the loop.
+//
+// Port mapping vs AnalogGym netlist:
+//   AnalogGym port      Clay port    Role in LDO loop
+//   ──────────────────  ──────────   ──────────────────────────
+//   Vdd                 vdd          positive supply
+//   Vss                 vss          ground
+//   Vreg                out          regulated output
+//   vinp                inp          error-amp + input (= Vref)
+//   vinn                inn          error-amp − input (= Vfb)
+//   Vb (external bias)  (internal)   replaced by `nbias` from
+//                                    bias_tree (Iref + NMOS diode)
+//
+// The five-port Clay shape (inn, inp, out, vdd, vss) matches the
+// default AC testbench's wiring convention. The AnalogGym Vb port is
+// absorbed into the cell via the bias_tree block — cleaner Clay
+// expression of "this rail is supposed to be set by an internal bias
+// reference, not piped in from the testbench."
+//
+// What works (v0.0.31):
+//   * Parse: yes — device primitives + bias_tree round-trip cleanly.
+//   * Compile: yes — primitive-cell path materializes all 6 MOS +
+//     Cfb + Rfb + bias_tree (Iref source + NMOS diode) into the Cell
+//     IR. PDK class validation passes for every device.
+//   * E2E (ngspice): SKIPPED. The default AC testbench
+//     (`build_ac_testbench`) is configured for differential opamp
+//     characterization (gain_dc / gbw measurement from a VCVS-driven
+//     differential input). It does not match the LDO measurement
+//     setup, which needs DC sweep (Vdrop, LNR), load step (LR), and
+//     PSRR measurements. See `tests/test_analoggym_ldo_benchmark.py`
+//     for the skip rationale.
+//
+// What this benchmark adds to the AnalogGym coverage:
+//   * 11th AnalogGym benchmark expressed in Clay (10 opamps + 1 LDO).
+//   * First non-amplifier topology — exercises Clay's device
+//     primitives as a general circuit description language, not just
+//     an opamp DSL.
+//   * Demonstrates that bias_tree (v0.0.26 / G2) composes correctly
+//     with device primitives outside the opamp family: the LDO's
+//     internal nbias rail is set up by the same Iref + NMOS-diode
+//     pattern that 3-stage opamps use.
+
+package examples.analoggym_ldo_benchmark;
+pdk 'sky130';
+
+cell LdoSimple(inn, inp, out, vdd, vss) {
+  topology {
+    // ─── Error amplifier ────────────────────────────────────
+    // NMOS differential pair (Razavi Chapter 9 §2.1). Gates take
+    // inp / inn = vref / Vfb respectively, sources share net2,
+    // drains diverge to net1 (mirror-diode side) and vout1
+    // (mirror-output side, which is the error amp's output).
+    device M1 : nmos {
+      drain = net1; gate = inp; source = net2; body = vss;
+      W = 2u; L = 2u; M = 1;
+    }
+    device M2 : nmos {
+      drain = vout1; gate = inn; source = net2; body = vss;
+      W = 2u; L = 2u; M = 1;
+    }
+
+    // PMOS current-mirror load (Razavi Chapter 9 §4.2). M4 is
+    // diode-connected at net1, M3 mirrors with output at vout1.
+    // Sets the error amp's DC gain (= gm_diff · ro_M3∥ro_M2).
+    device M3 : pmos {
+      drain = vout1; gate = net1; source = vdd; body = vdd;
+      W = 80u; L = 0.5u; M = 1;
+    }
+    device M4 : pmos {
+      drain = net1; gate = net1; source = vdd; body = vdd;
+      W = 80u; L = 0.5u; M = 1;
+    }
+
+    // NMOS tail current source. Gate driven by the internal nbias
+    // rail (declared in the bias_tree block below). This replaces
+    // the AnalogGym `Vb` external port with an internal Iref +
+    // NMOS-diode reference, so the Clay cell's port list stays the
+    // standard (inn, inp, out, vdd, vss).
+    device M5 : nmos {
+      drain = net2; gate = nbias; source = vss; body = vss;
+      W = 100u; L = 0.5u; M = 1;
+    }
+
+    // ─── Pass transistor ────────────────────────────────────
+    // Large PMOS series device between vdd and out. Gate driven
+    // by the error amp output (vout1). In closed-loop, the error
+    // amp pulls M6's gate to whatever Vgs makes Id(M6) = Iload
+    // while Vds(M6) = vdd - Vreg. The large M=360 (effective
+    // W/L · M = 20·360/0.5 = 14400 µm/µm) gives the dropout
+    // voltage its low value (V_dropout = Vdsat(M6) at I_max).
+    device M6 : pmos {
+      drain = out; gate = vout1; source = vdd; body = vdd;
+      W = 20u; L = 0.5u; M = 360;
+    }
+
+    // ─── Compensation network ───────────────────────────────
+    // Series RC between vout1 (error amp output) and out (= Vreg).
+    // This is a Miller-style compensation that splits a pole at
+    // vout1 down toward DC and pushes the output pole up — the
+    // classic frequency-compensation move that keeps a 2-stage
+    // loop stable when CL on out is large.
+    // AnalogGym sizing: Cfb has M_Cfb = 5 (5 mim-caps in parallel)
+    // and Rfb is one R-block with M_Rfb = 1. Effective values
+    // depend on the sky130 mim/res sizing; the values below are
+    // representative engineering numbers that compile cleanly
+    // into the primitive cap/res IR (which uses lumped values,
+    // not parameterized PDK subckts).
+    cap Cfb { p = fb_mid; n = out;   value = 5pF; }
+    res Rfb { p = fb_mid; n = vout1; value = 50kOhm; }
+  }
+
+  bias_tree {
+    // External reference current. AnalogGym's ldo_simple uses a
+    // bias voltage `Vb=1.2V` to set M5's gate directly. We model
+    // the same intent with an explicit Iref + NMOS-diode pair:
+    // Iref injects 1uA into nbias from vdd, the NMOS diode at
+    // nbias sinks it to vss, and nbias settles at Vgs(M_diode) —
+    // M5's gate is tied to that rail.
+    Iref:  external   = 1uA;
+    nbias: nmos_diode from Iref;
+  }
+
+  // ─── Spec ───────────────────────────────────────────────────
+  // LDO-relevant specs are line regulation (LNR), load regulation
+  // (LR), dropout voltage (V_dropout), and PSRR. v0.0.33 added the
+  // LDO testbench infrastructure (build_ldo_testbench, four new
+  // drive modes in clay.verifier). The cell-level `spec` block here
+  // is intentionally minimal so the single-setup verify form still
+  // parses for callers that don't yet exercise the multi-setup
+  // form. The richer LDO assertion suite lives in the `verify`
+  // block below.
+  spec {
+    gain_dc : real >= 0;
+  }
+}
+
+// Single-setup verify (default — uses the testbench's built-in DC
+// sweep on Vin and asserts a trivial vout_max bound). Kept for
+// callers that import the file and want a one-line LDO check.
+verify LdoSimple;
+
+// Multi-setup verify (v0.0.33). Exercises the four new LDO drive
+// modes: line-regulation DC sweep on Vin, load-regulation DC sweep
+// on Iload, and transient steps on both. Each setup gets its own
+// ngspice run; the per-setup spec asserts the measured regulation
+// / settling is within an LDO-grade envelope.
+//
+// Cell-reference form note: v0.0.33 grammar allows `verify
+// pkg::Cell { setup ... }` for Python-registered cells, but not
+// bare `verify LocalCellName { setup ... }` against an in-source
+// cell_def. The `__celldef__::` prefix is Clay's internal sentinel
+// for routing through `compile_cell_def`; it's surfaced here so
+// the multi-setup verify can target the LDO cell_def declared
+// above without an out-of-file Python registration. The cleaner
+// grammar (`verify LdoSimple { setup ... }` directly) is tracked
+// as a v0.0.34+ parser enhancement.
+//
+// Threshold rationale:
+//   * line_regulation ≤ 50 mV/V — textbook line-reg target for
+//     mid-tier LDOs; AnalogGym ldo_simple's published numbers
+//     are on the order of 1-10 mV/V at maxload.
+//   * load_regulation ≤ 100 mV/A — load-reg target for a 10 mA
+//     LDO; ldo_simple's published number is roughly 10-50 mV/A.
+//   * vout_final ≥ 0 in the transient setups is a sanity bound
+//     (regulator must stay inside [0, Vin]). Tight settling-time
+//     / overshoot bounds need PWL stimuli which are not in this
+//     version's IR — see CHANGELOG.
+verify __celldef__::LdoSimple {
+  setup line_reg {
+    // DC sweep on Vin from the testbench's default vin_min (1.6 V)
+    // up to the drive_value (3.0 V). The verifier-side rewrite
+    // installs `line_regulation = vout_pp / (vmax - vmin)`.
+    drive { dc_vin_sweep = 3.0; }
+    spec  { line_regulation : real <= 50 mV/V; }
+  }
+  setup load_reg {
+    // DC sweep on Iload from the testbench's default iload_min
+    // (10 uA) up to the drive_value (10 mA). The rewrite emits
+    // `load_regulation = vout_pp / (imax - imin)` in V/A.
+    drive { dc_iload_sweep = 0.01; }
+    spec  { load_regulation : real <= 100 mV/A; }
+  }
+  setup load_step {
+    // Transient step on Iload. drive_value is the post-step
+    // current level (10 mA). The pre-step level is the
+    // testbench's iload_nom (1 mA), so the regulator sees a
+    // 1 mA → 10 mA load increase. Asserts the regulator stays
+    // within ±100 mV of its initial vout under the step.
+    drive { tran_load_step = 0.01; }
+    spec  { vout_final : real >= 0; }
+  }
+  setup line_step {
+    // Transient step on Vin. drive_value (3.0 V) is the
+    // post-step input level; pre-step is the testbench's
+    // vin_nom (2.0 V).
+    drive { tran_line_step = 3.0; }
+    spec  { vout_final : real >= 0; }
+  }
+}
+
+// ─── Flow registration (dogfood) ────────────────────────────────
+// AnalogGym sky130 PMOS-pass LDO benchmark. No gf180 layout
+// generator exists for this cell (it is sky130-only device
+// primitives, never routed to GDS), so the flow declares ONLY the
+// runnable steps: parse + compile. The drc/lvs/pex/post/intent/sign
+// steps require a laid-out GDS this package does not own and are
+// intentionally omitted.
+flow LdoSimple {
+  pdk "sky130";
+  corners (tt);
+  steps (compile);
+}
+
+// Quality block. The cell's multi-setup `verify` block is the SOLE
+// (canonical) KPI source: spec assertions on line_regulation,
+// load_regulation, and vout_final. The compiler lifts those metric
+// names and reads them from post_results as <name>_post. They
+// evaluate to "pending" until a measured sky130 line/load regulation
+// json is bundled (none exists yet — see case.yaml gaps).
+//
+// This block carries NO @kpi entries: a quality{@kpi} table on the
+// same metrics would be SHADOWED by verify/spec (compile_flow_spec
+// emits a diagnostic and ignores the @kpi bounds). The remaining
+// quality dimension that verify/spec cannot express is pre/post
+// consistency — the relative band the regulation metrics must hold
+// across the pre/post comparison once a measured json exists. Those
+// @consistency entries name the same verify metrics without
+// duplicating their bound, so verify/spec stays the one KPI surface.
+quality LdoSimple {
+  @consistency(line_regulation, rel <= 0.10);
+  @consistency(load_regulation, rel <= 0.10);
+}

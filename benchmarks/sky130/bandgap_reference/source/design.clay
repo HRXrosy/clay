@@ -1,0 +1,413 @@
+// AnalogGym benchmark: Voltage Reference (subthreshold CMOS bandgap).
+//
+// THIRD non-amplifier AnalogGym benchmark expressed in Clay, after
+// LDO (`analoggym_ldo_benchmark.clay`, v0.0.32) and PLL
+// (`analoggym_pll_benchmark.clay`, v0.0.32). With this file the
+// non-amplifier coverage reaches three of four+ AnalogGym categories:
+//
+//   ✓ Low Dropout Regulator        (v0.0.32, device primitives)
+//   ✓ Phase-Locked Loop            (v0.0.32, instance composition)
+//   ✓ Voltage Reference (bandgap)  (v0.0.33, device primitives)
+//   – Charge Pump
+//   – Sensing Front End
+//
+// AnalogGym source:
+//   AnalogGym/AnalogGym/Voltage Reference/Description of  Voltage References  in AnalogGym.md
+//
+// AnalogGym ships four voltage-reference variants in that document
+// (no flat netlist files, only an embedded SPICE description):
+//
+//   1. Three-output voltage reference
+//      MOSFET-only sub-threshold; 21 transistors; produces vref1/2/3.
+//      Most complex of the four — chains three reference stages with
+//      a folded-cascode-style start-up + a cascoded current mirror.
+//
+//   2. Sub-threshold voltage and current reference
+//      MOSFET + BJT (`pbhvnwpsub2_ga`) + poly resistors. Needs PDK
+//      BJT support; sky130 has `sky130_fd_pr__pnp_05v5` but no Clay
+//      device-class binding (would require sky130 adapter extension).
+//      Also depends on `rppolyhri3k` poly resistor (proprietary).
+//
+//   3. Bandgap voltage and current reference WITHOUT amplifiers
+//      BJT-based (`vnpn_0p54x2_sm062`); 26+ devices, three current
+//      mirror pairs, R1/R2 ratio for PTAT generation. Same BJT
+//      blocker as #2, plus heavier resistor count.
+//
+//   4. Dual-output sub-threshold CMOS voltage reference  ← CHOSEN
+//      MOSFET-ONLY; 7 transistors + 2 caps; NO BJTs, NO resistors.
+//      Cleanest mapping to Clay's v0.0.33 surface (device primitives
+//      + sky130's available device classes: `nmos`, `nmos_lvt`,
+//      `pmos`). Uses ΔVth between regular nmos and lvt nmos as the
+//      reference's temperature-stable building block.
+//
+// We pick #4 because it parses + compiles cleanly today without
+// extending the sky130 PDK adapter. Variants #2 and #3 need BJTs;
+// variant #1 has the same device-class palette as #4 but with 3x
+// the transistor count — #4 is the canonical illustration of "Clay
+// can express a voltage reference topology".
+//
+// ──────────────────────────────────────────────────────────────────
+// Topology — Dual-output sub-threshold CMOS voltage reference
+// ──────────────────────────────────────────────────────────────────
+//
+//                   vdda
+//                ┌───┴────────────────────────────────┐
+//                │                                    │
+//             M1 │ (PMOS diode at net14)              │
+//                │ gate=drain=net14                   │
+//                ├──┬─── net14 ───┐                   │
+//                │  │             │                   │
+//                M2 │  M3 (W=1.84u │, M=1, gate=net14)
+//             gate=net14,         │
+//             drain=net15         drain=vref2 ────┐
+//                │                                │
+//              net15                              │
+//                │                              vref2
+//                ├──── M4 (NMOS, diode)            │
+//                │     gate=drain=net15            │
+//                │     source=vref1                │
+//                ├──── M5 (NMOS, gate=vref1,       │
+//                │       drain=net14, source=gnda) │
+//                │                                 │
+//             vref1   ──── M6 (NMOS_lvt, gate=net15, │
+//                │           drain=vref1, src=gnda) │
+//                │                                 │
+//                Co1 (90 pF to gnda)              M7 (NMOS_lvt, diode)
+//                                                  │  gate=drain=vref2
+//                                                  │  source=gnda
+//                                                  │
+//                                                  Co2 (20 pF to gnda)
+//
+// Device-by-device role assignment (preserving AnalogGym SPICE names):
+//
+//   M1 (PMOS, narrow-long, m=1)
+//     PMOS diode at net14 — gate=drain=net14, source=vdda. Sets the
+//     reference current. Together with M5 it forms a self-biased
+//     beta-multiplier-style loop where the PMOS load and NMOS sink
+//     equalize at sub-threshold.
+//
+//   M2 (PMOS, same WL as M1)
+//     PMOS current mirror at net15 — gate=net14, drain=net15. Mirrors
+//     M1's current to feed the M4-diode side of the reference.
+//
+//   M3 (PMOS, 8x wider than M1/M2)
+//     PMOS current mirror at vref2 — gate=net14, drain=vref2. Drives
+//     the M7-diode side of the second output (vref2). 8x width
+//     scales the M7 current up 8x, which gives the second reference
+//     its different operating point and temperature behaviour.
+//
+//   M4 (NMOS, regular Vth)
+//     NMOS diode at net15 — gate=drain=net15, source=vref1. Provides
+//     the upper diode drop in the loop that defines vref1. Its Vgs
+//     is the regular-nmos sub-threshold voltage at the bias current.
+//
+//   M5 (NMOS, regular Vth, narrow-long)
+//     NMOS, gate=vref1, drain=net14, source=gnda. Closes the loop
+//     for vref1: M5's Vgs is sensed at vref1, fed back to the M1
+//     bias path. Steady state, vref1 = Vgs(M5).
+//
+//   M6 (NMOS_lvt, lower Vth, wide)
+//     NMOS-LVT, gate=net15, drain=vref1, source=gnda. Sinks the
+//     M2-mirror current at vref1; the lvt device has a LOWER Vth
+//     than M5's regular nmos. The Vgs delta between M5 and M6 at
+//     equal current is what makes the reference temperature-stable:
+//     M5's Vgs has a negative TC, the (M5-M6) Vgs delta has a
+//     positive TC, the ratio of currents (set by sizing) tunes the
+//     combined temperature coefficient.
+//
+//   M7 (NMOS_lvt, diode)
+//     NMOS-LVT diode at vref2 — gate=drain=vref2, source=gnda. The
+//     second output's diode reference. Vgs at the M3-mirror current
+//     (8x of M1) gives vref2 a similar sub-threshold dependence as
+//     vref1 but at a different bias point — exposes the dual-output
+//     property of the cell.
+//
+//   Co1, Co2 (decoupling caps)
+//     vref1→gnda (90 pF) and vref2→gnda (20 pF). The AnalogGym
+//     netlist uses 90× and 10× of a 50 fF MIM array; Clay's
+//     primitive cap takes a lumped value, so we emit equivalent
+//     bulk values directly. These caps stabilise the reference
+//     loop dominant pole; without them the loop's bandwidth is high
+//     enough that PSRR at audio frequencies degrades.
+//
+// ──────────────────────────────────────────────────────────────────
+// AnalogGym → sky130 device-class mapping
+// ──────────────────────────────────────────────────────────────────
+//
+//   AnalogGym kind     sky130 binding         Vth (approx)
+//   ─────────────────  ─────────────────────  ───────────
+//   pmos_1p8           pfet_01v8              ≈  0.42 V
+//   nmos_1p8           nfet_01v8              ≈  0.42 V
+//   nmos_6p0           nfet_g5v0d10v5         ≈  0.7  V   (no sky130 1p8 analogue)
+//
+// sky130 doesn't ship a 5V/6V family at the same bias point as 1p8,
+// so the AnalogGym `nmos_6p0` (HIGHER Vth) cannot be reproduced
+// with the standard 1p8 pfet/nfet alone. Instead, we use sky130's
+// `nmos_lvt` (LOWER Vth) for what AnalogGym used as `nmos_6p0`:
+// the architectural role is "second device family with a different
+// Vth from the regular nmos". The Vth delta direction flips, but the
+// reference topology stays valid — the matching condition becomes a
+// different number, not a different circuit shape. A future v0.0.34+
+// PDK adapter could surface sky130's `nfet_g5v0d10v5` if exact
+// AnalogGym TC numbers need to be reproduced.
+//
+//   AnalogGym device   Clay device_class
+//   ─────────────────  ─────────────────
+//   M1 (pmos_1p8)      pmos
+//   M2 (pmos_1p8)      pmos
+//   M3 (pmos_1p8)      pmos
+//   M4 (nmos_1p8)      nmos
+//   M5 (nmos_1p8)      nmos
+//   M6 (nmos_6p0)      nmos_lvt    (sky130 substitute)
+//   M7 (nmos_6p0)      nmos_lvt    (sky130 substitute)
+//
+// ──────────────────────────────────────────────────────────────────
+// What works in v0.0.33
+// ──────────────────────────────────────────────────────────────────
+//
+//   * Parse: yes — device primitives + cap primitives round-trip
+//     cleanly. No new grammar required.
+//   * Compile: yes — primitive-cell path materialises all 7 MOS +
+//     2 caps into the Cell IR. PDK class validation passes for every
+//     device (`pmos`, `nmos`, and `nmos_lvt` are all in sky130's
+//     `device_bindings`).
+//   * E2E (ngspice): SKIPPED. Same reason as LDO/PLL skeletons —
+//     the default `build_ac_testbench` is configured for differential
+//     opamp characterisation (inp/inn ports, AC sweep, gain_dc + gbw
+//     measurement). A voltage reference has neither differential
+//     inputs nor an AC port — its native measurement is V(vref1)
+//     over a temperature sweep, which needs a bandgap-specific
+//     testbench builder (DC sweep on temperature + .measure dc on
+//     V(vref) at multiple temps). That builder is not in v0.0.33's
+//     `clay/templates/`. See the spec doc
+//     (`docs/superpowers/specs/clay-analoggym-bandgap-benchmark.html`)
+//     for the contracted next-step.
+//
+// ──────────────────────────────────────────────────────────────────
+// What this benchmark adds vs LDO and PLL
+// ──────────────────────────────────────────────────────────────────
+//
+//   * Third non-amplifier AnalogGym category covered (after LDO and
+//     PLL). Each new category stresses a different part of Clay's
+//     surface:
+//
+//       Category   v   Path                      Stresses
+//       ─────────  ──  ───────────────────────   ─────────────────────────────
+//       LDO        32  device primitives         5-port amp + pass + Cfb/Rfb
+//       PLL        32  instance composition      stdlib opamp + sub-cell wiring
+//       Bandgap    33  device primitives         3-port refs + LVT device class
+//
+//     The bandgap is the first benchmark whose primary port shape is
+//     NOT (inn, inp, out, vdd, vss). It has TWO reference outputs
+//     and NO differential inputs. That alone proves the v0.0.28
+//     device primitives path is port-shape-agnostic.
+//
+//   * First benchmark to exercise `nmos_lvt` from sky130's adapter.
+//     Sky130 has shipped `nfet_01v8_lvt` in the binding table since
+//     v0.0.24 but no prior example reached for it. Bandgap is the
+//     natural fit because dual-Vth devices are the canonical building
+//     block of CMOS sub-threshold references (Vittoz & Fellrath 1977
+//     onwards).
+//
+//   * First benchmark whose natural measurement (vref vs temperature)
+//     directly motivates v0.0.30's `temps { ... }` block — the
+//     reference's TC is what the AnalogGym SPICE file's
+//     `.measure dc TC param='ppavl1/avgval1/165'` extracts across a
+//     -40 / 27 / 85 °C sweep. The `temps` block is already in this
+//     file's `verify` job; the testbench gap (above) is the only
+//     thing keeping the e2e measurement from running today.
+
+package examples.analoggym_bandgap_benchmark;
+pdk 'sky130';
+
+cell DualOutputSubthresholdVref(vref1, vref2, vdd, vss) {
+  topology {
+    // ─── PMOS bias + mirror chain (top half of the cell) ──────
+    // M1: PMOS diode at net14 — sets the bias current.
+    // M2: PMOS mirror to net15 — equal-size mirror leg, sources
+    //     vref1's bias.
+    // M3: PMOS mirror to vref2 — 8× width, sources vref2's bias.
+    //
+    // AnalogGym uses long (L=18 µm) narrow PMOS devices in this
+    // bias chain to stay deep in sub-threshold even at room temp;
+    // we preserve the long-L choice. The width ratio M3:M1:M2 =
+    // 8:1:1 sets the dual-output current scaling.
+    // v0.0.35: sizes bumped to fit sky130 model bins (the original
+    // AnalogGym W=0.23u L=18u values don't bin into any sky130
+    // pfet_01v8 model — sky130's longest L bin is 20u with wmin=0.42u,
+    // and there's no L=18u bin at all). The architectural intent
+    // (narrow-long PMOS in the bias chain to stay deep in sub-threshold)
+    // is preserved with L=8u W=0.42u; the M3 width ratio (8:1 nominal,
+    // now 7.1:1 with W=3u) keeps the dual-output current scaling close
+    // to the original.
+    device M1 : pmos {
+      drain  = net14;
+      gate   = net14;
+      source = vdd;
+      body   = vdd;
+      W = 0.42u; L = 8u; M = 1;
+    }
+    device M2 : pmos {
+      drain  = net15;
+      gate   = net14;
+      source = vdd;
+      body   = vdd;
+      W = 0.42u; L = 8u; M = 1;
+    }
+    device M3 : pmos {
+      drain  = vref2;
+      gate   = net14;
+      source = vdd;
+      body   = vdd;
+      W = 3u; L = 8u; M = 1;
+    }
+
+    // ─── NMOS regular-Vth half (vref1 reference loop) ─────────
+    // M4: NMOS diode at net15 — gate=drain=net15, source=vref1.
+    //     Provides the upper diode drop in vref1's loop.
+    // M5: NMOS feedback device — gate=vref1, drain=net14, source=gnda.
+    //     Closes the loop; Vgs(M5) settles to drive M1's bias such
+    //     that M2's current matches M4-stack steady state.
+    //
+    // The loop equation in sub-threshold (Razavi Ch. 11 §11.1):
+    //   I_M1 = I_M5 ; Vgs(M5) = vref1 ;
+    //   Vgs(M4) at I = K · I_M5 where K is the mirror ratio.
+    // The reference value vref1 = Vgs(M4) - Vgs(M5) ≈ n · V_T · ln(K · S_M5 / S_M4),
+    // where n is the sub-threshold slope factor and V_T = kT/q. The
+    // ln-of-ratio term sets the design value; the temperature
+    // dependence is PTAT through V_T.
+    // v0.0.35: M4 was W=6u (no bin) → W=5u (valid bin at L=2u).
+    // M5 was W=0.3u L=18u (no bin) → W=0.42u L=8u (valid bin).
+    device M4 : nmos {
+      drain  = net15;
+      gate   = net15;
+      source = vref1;
+      body   = vss;
+      W = 5u; L = 2u; M = 1;
+    }
+    device M5 : nmos {
+      drain  = net14;
+      gate   = vref1;
+      source = vss;
+      body   = vss;
+      W = 0.42u; L = 8u; M = 1;
+    }
+
+    // ─── NMOS-LVT half (vref1 and vref2 stabilisation) ────────
+    // M6: NMOS-LVT, gate=net15, drain=vref1, source=gnda.
+    //     The lower-Vth device that sinks M2's mirror current
+    //     into vref1. The Vth delta between M6 (LVT) and M5
+    //     (regular) injects a complementary-to-PTAT (CTAT) term
+    //     into the reference, giving the temperature compensation.
+    // M7: NMOS-LVT diode at vref2 — gate=drain=vref2, source=gnda.
+    //     The diode reference for the second output. Sub-threshold
+    //     Vgs at the M3-mirror current (8× of the M1-bias) sets
+    //     the vref2 operating point.
+    //
+    // On AnalogGym this is `nmos_6p0` (a 5V/6V device with a
+    // HIGHER Vth than the 1p8 nmos). sky130's 1p8 family doesn't
+    // ship a higher-Vth variant; we use `nmos_lvt` (LOWER Vth)
+    // instead. The architectural role is "second nmos type with
+    // a different Vth" — the Vth-delta direction flips but the
+    // topology stays valid.
+    // v0.0.35: M6 was W=8u L=8u → W=7u L=8u (valid nmos_lvt bin).
+    // M7 was W=0.3u L=20u (no bin) → W=1u L=2u (valid nmos_lvt bin).
+    device M6 : nmos_lvt {
+      drain  = vref1;
+      gate   = net15;
+      source = vss;
+      body   = vss;
+      W = 7u; L = 8u; M = 1;
+    }
+    device M7 : nmos_lvt {
+      drain  = vref2;
+      gate   = vref2;
+      source = vss;
+      body   = vss;
+      W = 1u; L = 2u; M = 1;
+    }
+
+    // ─── Output decoupling caps ───────────────────────────────
+    // AnalogGym uses 90× and 10× of a 50 fF mim_2p0fF_tm cell:
+    //   Co1 (vref1): 90 × 50 fF = 4.5 pF nominal
+    //   Co2 (vref2): 10 × 50 fF = 0.5 pF nominal
+    // Clay's primitive `cap` takes a lumped value rather than a
+    // PDK subckt; the values below are the equivalent lumped
+    // capacitances. These caps stabilise the reference loop's
+    // dominant pole.
+    cap Co1 { p = vref1; n = vss; value = 4.5pF; }
+    cap Co2 { p = vref2; n = vss; value = 0.5pF; }
+  }
+
+  // ─── Spec ───────────────────────────────────────────────────
+  // A bandgap-class CMOS voltage reference typically lands between
+  // 0.5 V and 1.3 V depending on topology and bias. The classic
+  // bipolar bandgap sits at ~1.2 V (Vbe + α·ΔVbe); a sub-threshold
+  // MOSFET reference (this cell) lands lower because n·V_T·ln(K)
+  // < Vbe at room temp. AnalogGym's reported numbers for the
+  // dual-output sub-threshold reference are ≈0.7 V for both outputs;
+  // we set the spec envelope at the wider [0.5 V, 1.3 V] band so
+  // that the cell parses cleanly into a Spec without committing to
+  // a tight bound the testbench can't verify yet.
+  //
+  // The spec lives in the cell body so a future bandgap testbench
+  // (DC temperature sweep + .measure dc on V(vref1)) can consume
+  // it directly. v0.0.33's verifier rig is opamp-AC-only, so a
+  // `verify` against this spec without a bandgap testbench would
+  // produce measure_missing for `vref1` — see the test file's
+  // skip rationale.
+  spec {
+    vref1 : real >= 0.5;
+    vref1 : real <= 1.3;
+    vref2 : real >= 0.5;
+    vref2 : real <= 1.3;
+  }
+
+  // ─── Temperature sweep ──────────────────────────────────────
+  // The reference's defining figure of merit is temperature
+  // coefficient: how much vref drifts across the operating range.
+  // AnalogGym's testbench sweeps -40 / 27 / 125 °C and computes
+  // TC = (Vpp / Vavg) / dT. We surface the same temperature points
+  // via v0.0.30's `temps { ... }` block so that once a bandgap
+  // testbench lands, the TC measurement comes for free from the
+  // existing cartesian-product sweep infrastructure.
+  temps {
+    -40C;
+    27C;
+    85C;
+  }
+}
+
+// Single-setup verify, declaring the spec envelope above. This
+// parses + populates the verify_jobs list; the actual ngspice run
+// is gated by the testbench gap noted in the cell header. The test
+// file (`tests/test_analoggym_bandgap_benchmark.py`) marks the
+// e2e check as skipped with the same rationale that LDO/PLL use.
+verify DualOutputSubthresholdVref;
+
+// ─── Flow registration (dogfood) ────────────────────────────────
+// AnalogGym sky130 voltage-reference benchmark. There is no gf180
+// layout generator for this cell (it is sky130-only, MOSFET+cap
+// primitives, never routed to GDS), so the flow declares ONLY the
+// steps the package can actually run: parse + compile. drc/lvs/pex/
+// post/intent/sign all require a laid-out GDS this package does not
+// own, so they are intentionally omitted (declaring them would make
+// the engine import a non-existent layout module and fail).
+flow DualOutputSubthresholdVref {
+  pdk "sky130";
+  corners (tt);
+  steps (compile);
+}
+
+// Quality block. The cell carries a `verify ... spec { vref1; vref2; }`
+// block, which is the PRIMARY (canonical) KPI source — the compiler
+// lifts vref1/vref2 from the spec assertions and reads them from
+// post_results as vref1_post / vref2_post. These keys evaluate to
+// "pending" until a sky130 bandgap-vs-temperature post-sim json is
+// bundled (none exists yet — see case.yaml gaps). The @kpi entries
+// below mirror the spec metric names so the quality block documents
+// the same canonical targets; no fabricated keys.
+quality DualOutputSubthresholdVref {
+  @kpi(vref1, ">=", 0.5, unit="V");
+  @kpi(vref2, ">=", 0.5, unit="V");
+}

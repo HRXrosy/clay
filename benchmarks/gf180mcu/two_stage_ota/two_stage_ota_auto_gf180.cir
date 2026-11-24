@@ -1,0 +1,50 @@
+* Two-Stage Miller Compensated OTA -- gf180mcu 3.3V (Automated Clay Flow Package)
+* Preserves circuits/two_stage/two_stage_ota_gf180.cir topology & sizing verbatim.
+* Spec: DC_Gain >= 70 dB, GBW >= 15 MHz, PM >= 60 deg, Power <= 1 mW
+
+.param W_BIAS_N   = 4u
+.param L_BIAS_N   = 1u
+.param W_BIAS_P   = 8u
+.param L_BIAS_P   = 1u
+
+.param W_TAIL     = 32u
+.param L_TAIL     = 1u
+
+.param W_DIFF     = 24u
+.param L_DIFF     = 1u
+
+.param W_LOAD     = 6u
+.param L_LOAD     = 2u
+
+.param W_STAGE2_N = 80u
+.param L_STAGE2_N = 0.5u
+
+.param W_STAGE2_P = 96u
+.param L_STAGE2_P = 1u
+
+.param CCOMP = 1.2p
+.param RZ    = 2k
+
+.subckt two_stage_ota vinp vinn vout ibias vdd vss
+
+* --- Bias generation: NMOS diode -> NMOS sink mirror -> PMOS diode ---
+xMNBIAS  ibias   ibias   vss vss nmos_3p3 W={W_BIAS_N} L={L_BIAS_N}
+xMNSINKP vbias_p ibias   vss vss nmos_3p3 W={W_BIAS_N} L={L_BIAS_N}
+xMPBIAS  vbias_p vbias_p vdd vdd pmos_3p3 W={W_BIAS_P} L={L_BIAS_P}
+
+* --- Stage 1: PMOS diff-pair + NMOS mirror load (5T core) ---
+xMPTAIL ntail vbias_p vdd vdd pmos_3p3 W={W_TAIL} L={L_TAIL}
+xMP1    vx_l  vinn    ntail vdd pmos_3p3 W={W_DIFF} L={L_DIFF}
+xMP2    vx    vinp    ntail vdd pmos_3p3 W={W_DIFF} L={L_DIFF}
+xMN3    vx_l  vx_l    vss   vss nmos_3p3 W={W_LOAD} L={L_LOAD}
+xMN4    vx    vx_l    vss   vss nmos_3p3 W={W_LOAD} L={L_LOAD}
+
+* --- Stage 2: NMOS common-source + PMOS current load ---
+xMN6 vout vx      vss vss nmos_3p3 W={W_STAGE2_N} L={L_STAGE2_N}
+xMP6 vout vbias_p vdd vdd pmos_3p3 W={W_STAGE2_P} L={L_STAGE2_P}
+
+* --- Miller compensation (vx -> vout) ---
+RZ1 vx  ncc  {RZ}
+CC1 ncc vout {CCOMP}
+
+.ends two_stage_ota

@@ -1,0 +1,107 @@
+{
+  "case_id": "case_five_t_ota_gf180_postlayout",
+  "cell": "routed_5t_ota",
+  "conditions": {
+    "sw_stat_global": 0,
+    "sw_stat_mismatch": 0,
+    "temp_c": 27.0,
+    "vbias_v": 0.85,
+    "vcm_v": 1.2,
+    "vdd_v": 3.3
+  },
+  "corner": "typical",
+  "criteria": {
+    "dc_gain_db_min": 40.0,
+    "dc_gain_v_per_v_min": 100.0,
+    "diff_points_mv": [
+      -10.0,
+      -5.0,
+      0.0,
+      5.0,
+      10.0
+    ],
+    "idd_a_range": [
+      2e-05,
+      0.0002
+    ],
+    "outn_monotonic_vs_diff": true,
+    "zero_diff_output_balance_v_max": 0.001
+  },
+  "dc_transfer": [
+    {
+      "diff_mv": -10.0,
+      "idd_a": 8.107992e-05,
+      "outn_v": 0.812879,
+      "outp_v": 2.123566,
+      "tail_v": 0.304167,
+      "vinn_v": 1.2049999999999998,
+      "vinp_v": 1.195
+    },
+    {
+      "diff_mv": -5.0,
+      "idd_a": 8.109305e-05,
+      "outn_v": 1.42148,
+      "outp_v": 2.122782,
+      "tail_v": 0.3058448,
+      "vinn_v": 1.2025,
+      "vinp_v": 1.1975
+    },
+    {
+      "diff_mv": 0.0,
+      "idd_a": 8.110605e-05,
+      "outn_v": 2.121565,
+      "outp_v": 2.121565,
+      "tail_v": 0.3073962,
+      "vinn_v": 1.2,
+      "vinp_v": 1.2
+    },
+    {
+      "diff_mv": 5.0,
+      "idd_a": 8.115822e-05,
+      "outn_v": 2.752163,
+      "outp_v": 2.119443,
+      "tail_v": 0.3086835,
+      "vinn_v": 1.1975,
+      "vinp_v": 1.2025
+    },
+    {
+      "diff_mv": 10.0,
+      "idd_a": 8.122715e-05,
+      "outn_v": 2.987172,
+      "outp_v": 2.114545,
+      "tail_v": 0.3091618,
+      "vinn_v": 1.195,
+      "vinp_v": 1.2049999999999998
+    }
+  ],
+  "metrics": {
+    "dc_gain_db": 42.48149217263793,
+    "dc_gain_v_per_v": 133.0683,
+    "outn_monotonic_vs_diff": true,
+    "outn_swing_20mv_v": 2.174293,
+    "zero_diff_output_balance_v": 0.0
+  },
+  "operating_point": {
+    "diff_mv": 0.0,
+    "idd_a": 8.110605e-05,
+    "outn_v": 2.121565,
+    "outp_v": 2.121565,
+    "tail_v": 0.3073962,
+    "vinn_v": 1.2,
+    "vinp_v": 1.2
+  },
+  "pdk": "gf180mcuD",
+  "pex": {
+    "caps": 26,
+    "contains_input_pair_caps": true,
+    "devices": 20,
+    "path": "final/routed_5t_ota.pex.spice",
+    "source": "Magic ext2spice gf180mcuD capture"
+  },
+  "schema": "clay.postlayout_sim/v1",
+  "simulator": {
+    "binary": "ngspice_con.EXE",
+    "engine": "ngspice"
+  },
+  "verdict": "pass"
+}

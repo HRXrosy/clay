@@ -1,0 +1,81 @@
+{
+  "active_bbox_relative_to_channel_center_nm": [
+    -365,
+    -1000,
+    365,
+    1000
+  ],
+  "all_labels": [
+    [
+      "D",
+      -220,
+      0,
+      [
+        67,
+        5
+      ]
+    ],
+    [
+      "S",
+      220,
+      0,
+      [
+        67,
+        5
+      ]
+    ]
+  ],
+  "channel_nm": [
+    150,
+    2000
+  ],
+  "input_sha256": {
+    "ports0": "1095f38fa872677b1ffc9d1eae7c4b207f35204765c590f7c2a95a244a6560d4",
+    "ports1": "742cf6b19f0c919caf42ce076d8a2525359d3d59c95c554d312a181e9ea18e7e",
+    "prior": "1c4f61c8925bf2e6c4900f8e01e7013a5e36ad5316f8d1204046b6b652d599b6"
+  },
+  "no_gate_licon": true,
+  "poly_bbox_relative_to_channel_center_nm": [
+    -75,
+    -1130,
+    75,
+    1130
+  ],
+  "same_gate_contact_setting_ports_xor_area_nm2": {
+    "125/44": 0,
+    "65/20": 0,
+    "66/20": 0,
+    "66/44": 0,
+    "67/20": 0,
+    "67/44": 0,
+    "67/5": 0,
+    "68/20": 0,
+    "93/44": 0
+  },
+  "scope": "one actual PDK unit; no gate access or row signoff",
+  "source_drain_labels_normalized_nm": {
+    "D": [
+      -220,
+      0
+    ],
+    "S": [
+      220,
+      0
+    ]
+  },
+  "source_identity": "ccb2ad5cc2dfe0f0ff36ce161721b6bdb5267f222c14e63537f41ce4de7c39ac",
+  "source_occurrences": 10,
+  "status": "SOURCE_BOUND_GATELESS_UNIT_OBSERVED",
+  "versus_prior_per_layer_xor_area_nm2": {
+    "125/44": 0,
+    "65/20": 0,
+    "66/20": 105900,
+    "66/44": 28900,
+    "67/20": 56100,
+    "67/44": 28900,
+    "67/5": 0,
+    "68/20": 66700,
+    "93/44": 0,
+    "95/20": 136900
+  }
+}

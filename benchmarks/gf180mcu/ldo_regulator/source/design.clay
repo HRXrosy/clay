@@ -1,0 +1,250 @@
+package cases.unseen_benchmarks.ldo_auto_gf180;
+pdk "gf180mcu";
+
+cell ldo_gf180(vin: power_p, vout: output, vref: input, vfb: inout, vfbs: inout, vss: power_n) {
+  topology {
+      device Mbias : nmos3v {
+        drain = ibias; gate = ibias; source = vss; body = vss;
+        W = 20u; L = 1u;
+      }
+      device M5 : nmos3v {
+        drain = ntail; gate = ibias; source = vss; body = vss;
+        W = 20u; L = 1u;
+      }
+      device M1 : nmos3v {
+        drain = vd1; gate = vref; source = ntail; body = vss;
+        W = 20u; L = 1u;
+      }
+      device M2 : nmos3v {
+        drain = vd2; gate = vfb; source = ntail; body = vss;
+        W = 20u; L = 1u;
+      }
+      device M3 : pmos3v {
+        drain = vd1; gate = vd1; source = vin; body = vin;
+        W = 20u; L = 1u;
+      }
+      device M4 : pmos3v {
+        drain = vd2; gate = vd1; source = vin; body = vin;
+        W = 20u; L = 1u;
+      }
+      device M6 : pmos3v {
+        drain = vg_pass; gate = vd2; source = vin; body = vin;
+        W = 40u; L = 1u;
+      }
+      device M7 : nmos3v {
+        drain = vg_pass; gate = ibias; source = vss; body = vss;
+        W = 40u; L = 1u;
+      }
+      device MP0 : pmos3v {
+        drain = vout; gate = vg_pass; source = vin; body = vin;
+        W = 100u; L = 0.5u;
+      }
+      device MP1 : pmos3v {
+        drain = vout; gate = vg_pass; source = vin; body = vin;
+        W = 100u; L = 0.5u;
+      }
+      device MP2 : pmos3v {
+        drain = vout; gate = vg_pass; source = vin; body = vin;
+        W = 100u; L = 0.5u;
+      }
+      device MP3 : pmos3v {
+        drain = vout; gate = vg_pass; source = vin; body = vin;
+        W = 100u; L = 0.5u;
+      }
+      device MP4 : pmos3v {
+        drain = vout; gate = vg_pass; source = vin; body = vin;
+        W = 100u; L = 0.5u;
+      }
+      device MP5 : pmos3v {
+        drain = vout; gate = vg_pass; source = vin; body = vin;
+        W = 100u; L = 0.5u;
+      }
+      device MP6 : pmos3v {
+        drain = vout; gate = vg_pass; source = vin; body = vin;
+        W = 100u; L = 0.5u;
+      }
+      device MP7 : pmos3v {
+        drain = vout; gate = vg_pass; source = vin; body = vin;
+        W = 100u; L = 0.5u;
+      }
+      device Mbleed : nmos3v {
+        drain = vout; gate = ibias; source = vss; body = vss;
+        W = 40u; L = 1u;
+      }
+      res Rbias_ref {
+        p = vin; n = ibias;
+        value = 664k;
+        model = ppolyf_u;
+      }
+      cap Cc {
+        p = vg_pass; n = vout;
+        value = 2p;
+      }
+      res Rfb1a {
+        p = vout; n = vfb_mid_A;
+        value = 50k;
+        model = ppolyf_u;
+      }
+      res Rfb1b {
+        p = vfb_mid_A; n = vfbs;
+        value = 50k;
+        model = ppolyf_u;
+      }
+      res Rfb2a {
+        p = vfbs; n = vfb_mid_B;
+        value = 50k;
+        model = ppolyf_u;
+      }
+      res Rfb2b {
+        p = vfb_mid_B; n = vss;
+        value = 50k;
+        model = ppolyf_u;
+      }
+    functional_group input_pair {
+      role = input_pair,
+      group = input_pair,
+      label = "Input pair",
+      group_label = "Input pair",
+      devices = (M1, M2),
+      intent = "two nmos with distinct gate nets (vref, vfb) sharing source node ntail (the tail)"
+    }
+    functional_group tail_current {
+      role = tail_current,
+      group = tail_current,
+      label = "Tail current",
+      group_label = "Tail current",
+      devices = (M5),
+      intent = "drain on the diff-pair tail node ntail, source on rail vss"
+    }
+    functional_group current_mirror {
+      role = current_mirror,
+      group = current_mirror,
+      label = "Current mirror",
+      group_label = "Current mirror",
+      devices = (M5, M7, Mbias, Mbleed),
+      intent = "4 nmos sharing gate net ibias (gate=drain diode reference present)"
+    }
+    functional_group load_mirror_1 {
+      role = load_mirror,
+      group = load_mirror,
+      label = "Load mirror",
+      group_label = "Load mirror",
+      devices = (M3, M4),
+      intent = "2 pmos sharing gate net vd1 (gate=drain diode reference present)"
+    }
+    functional_group load_mirror_2 {
+      role = load_mirror,
+      group = load_mirror,
+      label = "Load mirror",
+      group_label = "Load mirror",
+      devices = (MP0, MP1, MP2, MP3, MP4, MP5, MP6, MP7),
+      intent = "8 pmos sharing gate net vg_pass (gate-tied current mirror)"
+    }
+    functional_group pass_device {
+      role = pass_device,
+      group = pass_device,
+      label = "Pass device",
+      group_label = "Pass device",
+      devices = (MP0, MP1, MP2, MP3, MP4, MP5, MP6, MP7),
+      intent = "8 parallel PMOS from rail vin to output vout with shared gate vg_pass (wide pass-FET bank)"
+    }
+    functional_group second_stage {
+      role = second_stage,
+      group = second_stage,
+      label = "Second stage",
+      group_label = "Second stage",
+      devices = (M6, M7),
+      intent = "common-source pmos (gate on signal node vd2) driving output vg_pass against a nmos current load"
+    }
+    functional_group compensation {
+      role = compensation,
+      group = compensation,
+      label = "Compensation",
+      group_label = "Compensation",
+      devices = (Cc),
+      intent = "cap Cc on nets ['vg_pass', 'vout'] forming a Miller compensation branch"
+    }
+    functional_group resistor {
+      role = resistor,
+      group = resistor,
+      label = "Resistor",
+      group_label = "Resistor",
+      devices = (Rbias_ref, Rfb1a, Rfb1b, Rfb2a, Rfb2b),
+      intent = "5 resistor(s): ratio / feedback bank"
+    }
+  }
+}
+
+layout_intent ldo_gf180 {
+  @place_group(nmos_bias, devices=(M5, M7, Mbias, Mbleed), row=0, col=0);
+  @place_group(nmos_diff, devices=(M1, M2), row=0, col=1);
+  @place_group(pmos_core, devices=(M3, M4, M6), row=1, col=0);
+  @place_group(pmos_pass, devices=(MP0, MP1, MP2, MP3, MP4, MP5, MP6, MP7), row=1, col=1);
+  @place_group(res_bias, devices=(Rbias_ref), row=2, col=0);
+  @place_group(passive_fb, devices=(Cc, Rfb1a, Rfb1b, Rfb2a, Rfb2b), row=2, col=1);
+  @array(current_mirror, style=shared_diffusion, order=ratio);
+  @array(load_mirror_1, style=shared_diffusion, order=ratio);
+  @array(pass_device, style=shared_diffusion, order=ratio);
+  @guard_ring(group=(M5, M7, Mbias, Mbleed), well=p, tie=vss, hug=tight, role=tap);
+  @guard_ring(group=(M1, M2), well=p, tie=vss, hug=tight, role=tap);
+  @guard_ring(group=(MP0, MP1, MP2, MP3, MP4, MP5, MP6, MP7), well=n, tie=vin, hug=tight, role=tap);
+  @trunk(vin, layer=M3, orient=H, width=3, edge=top);
+  @trunk(vout, layer=M3, orient=H, width=2);
+  @trunk(vss, layer=M3, orient=H, width=0.6, edge=bottom);
+  @trunk(ibias, layer=M2, orient=H, width=0.5);
+  @wire_width(vin, 2u);
+  @wire_width(vout, 2u);
+  @wire_width(vss, 0.6u);
+  // TODO: parasitic-cap budgets / area cap need a target spec
+}
+
+policy ldo_gf180_compact_2d {
+  @place_policy(gap = 1.8);
+  @route_policy(engine = pathfinder);
+}
+
+flow ldo_gf180 {
+  pdk "gf180mcu";
+  steps (compile, layout, drc, lvs, pex, post, intent, sign);
+  layout = generic;
+  policy = ldo_gf180_compact_2d;
+}
+
+quality ldo_gf180 {
+  @kpi(vout_v, ">=", 2.45, unit="V");
+  @kpi(psrr_db, ">=", 60, unit="dB");
+  @kpi(dc_gain_db, ">=", 60, unit="dB");
+  @kpi(power_w, "<=", 0.001, unit="W");
+  @require(drc_clean);
+}
+
+annotate ldo_gf180 {
+  @cell: @symmetric(vertical);
+  M1: @matching(M2);
+  M2: @matching(M1);
+  M1: @dense_contacts;
+  M2: @dense_contacts;
+  M6: @dense_contacts;
+  Mbias: @fold(10.01);
+  M5: @fold(10.01);
+  M1: @fold(10.01);
+  M2: @fold(10.01);
+  M3: @fold(10.01);
+  M4: @fold(10.01);
+  M6: @fold(10.01);
+  M7: @fold(10.01);
+  MP0: @fold(25.01);
+  MP1: @fold(25.01);
+  MP2: @fold(25.01);
+  MP3: @fold(25.01);
+  MP4: @fold(25.01);
+  MP5: @fold(25.01);
+  MP6: @fold(25.01);
+  MP7: @fold(25.01);
+  Mbleed: @fold(10.01);
+  Rbias_ref: @resistor_segments(pdk=gf180mcu, count=38, connection=series, width_um=0.8, length_um=39.94, segment_resistance_ohms=17473.8, value_quantum_ohms=10);
+  Rfb1a: @resistor_segments(pdk=gf180mcu, count=3, connection=series, width_um=0.8, length_um=38.095, segment_resistance_ohms=16666.6, value_quantum_ohms=1);
+  Rfb1b: @resistor_segments(pdk=gf180mcu, count=3, connection=series, width_um=0.8, length_um=38.095, segment_resistance_ohms=16666.6, value_quantum_ohms=1);
+  Rfb2a: @resistor_segments(pdk=gf180mcu, count=3, connection=series, width_um=0.8, length_um=38.095, segment_resistance_ohms=16666.6, value_quantum_ohms=1);
+  Rfb2b: @resistor_segments(pdk=gf180mcu, count=3, connection=series, width_um=0.8, length_um=38.095, segment_resistance_ohms=16666.6, value_quantum_ohms=1);
+}

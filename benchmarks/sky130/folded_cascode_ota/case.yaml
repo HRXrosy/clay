@@ -1,0 +1,37 @@
+schema: clay.case/v1
+id: case_folded_cascode_ota
+title: PMOS-input cascoded 5T OTA (sky130, 8 devices)
+category: opamp
+maturity: L2_COMPILE
+source:
+  clay: source/design.clay
+  top_cell: FoldedCascodeOTA
+  upstream_clay: examples/demo_folded_cascode_e2e_v121.clay
+metadata:
+  pdk: sky130
+  family: cascoded_5t_ota
+  topology_style: explicit_device_netlist
+  source: examples/demo_folded_cascode_e2e_v121.clay
+  device_count: 8
+  matched_pairs:
+    - [M1, M2]
+    - [M3, M4]
+    - [M7, M8]
+    - [Mtail, M_tcas]
+verify:
+  commands:
+    fast:
+      - python -m clay case validate .
+obligations:
+  required:
+    - parse
+    - compile
+gaps:
+  - Declared L2_COMPILE matches the evidence-computed level. The cell parses
+    and compiles to an 8-device cascoded netlist with four matched pairs in
+    the source annotate block, but no GDS artifact is bundled, so it does not
+    reach L4_LAYOUT_INTENT.
+  - No measured sim json, PEX, layout, DRC/LVS, or signoff record is bundled.
+  - The filename retains "folded_cascode" from the upstream round target; the
+    shipped topology is a cascoded 5T OTA (telescopic cascode on the mirror
+    side), per the upstream scope note.

@@ -1,0 +1,87 @@
+schema: clay.case/v1
+id: case_five_t_ota_gf180_postlayout
+title: GF180 five-transistor OTA post-layout simulation
+category: opamp
+maturity: L5_SIGNOFF
+source:
+  clay: source/design.clay
+  top_cell: FiveTOtaGf180
+metadata:
+  pdk: gf180mcu
+  layout_backend: gf180 routed 5T OTA flow
+  extraction_source: Magic ext2spice gf180mcuD
+  postlayout_simulator: ngspice
+  gds_cell_name: routed_5t_ota
+  layout_gds: benchmarks/gf180mcu/five_t_ota/final/routed_5t_ota.gds
+  pex_spice: benchmarks/gf180mcu/five_t_ota/final/routed_5t_ota.pex.spice
+  post_results: benchmarks/gf180mcu/five_t_ota/final/postlayout_sim.json
+  # Post-layout runner binding. scripts/run_postlayout_sim.py now exposes a
+  # dict-returning, sys.argv-free entrypoint run_post_kpis(pex_spice) that the
+  # flow PostSimStep._invoke() prefers over the CLI main(); it runs the real
+  # ngspice DC transfer check on the freshly extracted PEX deck and surfaces the
+  # operating-point idd_a at the top level so quality{}'s @kpi(idd_a) resolves a
+  # measured value (dc_gain_db already resolves via the metrics container). The
+  # earlier unbound note no longer applies — the runner now satisfies the
+  # postsim binding contract.
+  postsim_module: benchmarks.gf180mcu.five_t_ota.scripts.run_postlayout_sim
+  design_intent:
+    - Preserve matched NMOS input-pair placement and matched PMOS mirror-load devices.
+    - Treat the extracted per-finger devices and coupling caps as the simulation source of truth.
+    - Verify the post-layout DC operating point and low-frequency differential response.
+criteria:
+  postlayout_dc:
+    vdd_v: 3.3
+    vcm_v: 1.2
+    vbias_v: 0.85
+    diff_points_mv: [-10, -5, 0, 5, 10]
+    dc_gain_v_per_v_min: 100
+    dc_gain_db_min: 40
+    zero_diff_output_balance_v_max: 1.0e-3
+    idd_a_range: [2.0e-5, 2.0e-4]
+  layout_extraction:
+    extracted_devices: 20
+    extracted_caps: 26
+    input_pair_caps_present: true
+artifacts:
+  - final/routed_5t_ota.gds
+  - final/routed_5t_ota.pex.spice
+  - final/postlayout_sim.json
+  - final/flow_signoff.json
+  - scripts/run_postlayout_sim.py
+signoff:
+  # Captured from a live `clay flow run five_t_ota --force`: compile -> layout ->
+  # DRC-clean -> PEX -> post (real ngspice) -> intent-signed -> sign, overall
+  # verdict PASS. The token trace_digest below is the proof token the
+  # layout-intent gate signed for the matched_cc_balance(inp, inn, 0.10)
+  # obligation measured on the real Magic extraction (0.0023 < 0.10 — the matched
+  # NMOS input-pair gate-cap balance). The full per-step record is
+  # final/flow_signoff.json; the signed KPIs (dc_gain_db=42.48 dB >= 40,
+  # idd_a=81.1 uA <= 200 uA) are real ngspice post-layout measurements.
+  passed: true
+  verdict: passed
+  status: pass
+  report: final/flow_signoff.json
+  record: final/postlayout_sim.json
+  token:
+    signed: true
+    trace_digest: ea2aad1e8813cb29debc34053b5880f6339e5ff5f07842b0031ccd2ea5d9a05d
+verify:
+  commands:
+    fast:
+      - cmd: python -m clay case validate benchmarks/gf180mcu/five_t_ota
+        cwd: ../../..
+    postlayout:
+      - cmd: python benchmarks/gf180mcu/five_t_ota/scripts/run_postlayout_sim.py --check benchmarks/gf180mcu/five_t_ota/final/postlayout_sim.json
+        cwd: ../../..
+obligations:
+  required:
+    - parse
+    - compile
+    - layout_intent
+    - pex
+    - postlayout_sim
+gaps:
+  - LVS is structurally SKIPPED, not run: this is a post-layout-only package with no schematic .cir, so the flow has no reference netlist to build an LVS comparison against. The sign verdict rests on DRC-clean + intent-signed + the post-layout KPIs, not on a layout-vs-schematic match.
+  - The DC gain KPI is a finite-difference low-frequency transfer check, not a full AC bandwidth or stability signoff.
+  - The signed layout-intent obligation covers the matched input pair (inp~inn); the output pair (outp~outn) is intentionally not budgeted because outp carries the diode-connected PMOS load gate and is asymmetric by construction.
+  - The PEX deck is a captured artifact; replaying Magic extraction still depends on Docker/Magic availability and is not part of the default package validation.

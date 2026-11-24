@@ -1,0 +1,74 @@
+# Process-AGNOSTIC layout/routing principles.
+#
+# Truths that hold across PDKs (gf180mcu, sky130, ...). Process-bound quirks
+# (BSIM bin ceilings, specific device names, Magic extraction conventions on
+# a given PDK) live in clay/pdk/<pdk_id>_layout_intent.yaml -- one per PDK.
+# Use clay.layout.layout_diagnostics.all_layout_knowledge(pdk_id) to load
+# both this file and the matching PDK file together.
+#
+# Each entry:
+#   id          short slug
+#   pattern     when does this apply
+#   diagnosis   what goes wrong if you don't account for it
+#   fix         what to do
+#   source      where it was learned
+#   tags        for filtering
+
+schema: clay.layout_knowledge/v1
+scope: process-agnostic
+lessons:
+
+  - id: global_tap_planner_is_required_for_bias_trees
+    pattern: cells with several internal bias nets (folded cascode, bandgap startup, two-stage bias chain)
+    diagnosis: |
+      Without a global tap planner that assigns every M1 riser a DEDICATED
+      x-lane, multiple bias nets end up sharing x-columns; the extractor
+      collapses them into ONE merged net (caught in fc_ota first attempt:
+      vbias_fold/vbc_p/vbc_n/vbcp_mid all merged to ibias).
+    fix: |
+      Use the comparator_router pattern: a single `_plan_tap` registry of
+      occupied lanes; every new riser clears `_SPACE` from a different-net
+      lane or merges into a same-net lane. fc_ota redo applied this and all
+      11 internal nets extracted distinct.
+    source: comparator_router (paradigm); fc_ota redo
+    tags: [routing, conventions]
+
+  - id: rail_tag_every_polygon_with_its_net
+    pattern: any cell with vdd / vss / gnd polygons in routing
+    diagnosis: |
+      If the rail polygons aren't tagged with their net names, the extractor
+      treats them as floating uniquified nets and the global structural
+      constraints can't apply. Symptom: ports merge with nothing or extract
+      as random net IDs.
+    fix: |
+      Every rail polygon (M1 strip, well taps, substrate taps) tagged with
+      'vdd' or 'gnd' (or 'vss'). clay/layout/global_constraints depends on
+      this convention.
+    source: ldo + bandgap + two_stage pre-sim (caught later by global_constraints audit)
+    tags: [routing, conventions]
+
+  - id: device_name_suffix_for_pair_recognition
+    pattern: matched device pairs (input pair, mirror pair, cascode pair)
+    diagnosis: |
+      The global prefer_symmetry_and_minimal rule recognises matched pairs
+      by name-suffix (_p/_n, _l/_r, _left/_right, _ref/_out, _t/_b). Devices
+      named M0/M1/.../M22 (numeric only) won't be paired automatically.
+    fix: |
+      Name matched devices with suffix convention. The comparator pre-dates
+      the rule and uses a custom _PAIR_LEFT/_PAIR_RIGHT registry; new
+      layouts should adopt the suffix convention.
+    source: 5T-OTA / comparator (registry); current_mirror, fc_ota redo (suffix)
+    tags: [conventions, symmetry]
+
+  - id: cell_aspect_ratio_set_by_sizing
+    pattern: an area-target miss on a cell whose .cir sizes a transistor wide (W > 30 um)
+    diagnosis: |
+      The minimum cell HEIGHT is set by the widest folded-device's height
+      (W=36 um fold -> ~38 um device row + ~9 um rail + channel ~= 85 um).
+      No amount of routing-side optimization shrinks the cell below this.
+    fix: |
+      An area-target miss for sizing-driven height should drive a SIZING
+      review (more fingers / shorter W per device), not a routing rewrite.
+      Document the floor in DESIGN_POST.md.
+    source: fc_ota redo
+    tags: [sizing, area]

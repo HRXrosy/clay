@@ -1,0 +1,139 @@
+// Small-circuit .clay -> GDS Stage 1+ demo (R104 Agent D): telescopic cascode OTA.
+// Fourth sim-able demo cell in the clay_to_gds_demo pipeline lineup,
+// following demo_diff_pair_e2e_v120 (2 devices), demo_5t_ota_e2e_v121
+// (5 devices), and demo_folded_cascode_e2e_v121 (8 devices, cascoded
+// 5T OTA at gain_dc ~ 44 dB). Exercises the full 6-stage pipeline
+// (parse / pre-sim / layout / DRC / LVS topology / post-sim).
+//
+// Topology distinction from v121 folded-cascode demo: the v121 demo's
+// "folded cascode" filename was scope-reduced (per its own SCOPE NOTE)
+// to a cascoded-5T OTA with PMOS tail cascode + NMOS mirror cascode but
+// only L=0.5u on the NMOS half — giving ~ 44 dB. This v122 cell uses the
+// SAME 8-device PMOS-input telescopic stack (Mtail + M_tcas tail cascode
+// pair, M1/M2 diff pair, M3/M4 NMOS cascode mirror, M7/M8 NMOS sink
+// mirror) but scales every cascode length L 0.5u -> 2u and every
+// diff-pair length L 0.5u -> 1u to push intrinsic gain past 50 dB. The
+// "telescopic" framing emphasizes the true 3-level vertical stack on
+// each output branch: PMOS tail cascode -> PMOS diff-pair -> NMOS
+// cascode -> NMOS sink, with no folding NMOS source path. This is the
+// textbook telescopic cascode at the cost of reduced output swing (the
+// stacked Vds_sat budget at sky130 1.8 V is ~ 0.6 V swing, vs. the
+// folded variant's larger headroom).
+//
+// Topology (PMOS-input telescopic cascode, 8 devices, sky130 1.8 V):
+//
+//   Mtail  : PMOS, gate=pbias, drain=tail,   source=vdd     (tail current)
+//   M_tcas : PMOS, gate=pbias, drain=tail2,  source=tail    (PMOS tail cascode)
+//   M1     : PMOS, gate=inn,   drain=out_n,  source=tail2   (diff pair left)
+//   M2     : PMOS, gate=inp,   drain=out_p,  source=tail2   (diff pair right)
+//   M3     : NMOS, gate=out_n, drain=out_n,  source=mid_n   (NMOS cascode diode)
+//   M4     : NMOS, gate=out_n, drain=out_p,  source=mid_p   (NMOS cascode mirror)
+//   M7     : NMOS, gate=mid_n, drain=mid_n,  source=vss     (NMOS sink diode)
+//   M8     : NMOS, gate=mid_n, drain=mid_p,  source=vss     (NMOS sink mirror)
+//
+// Self-biasing (single external pbias, no internal ncas / pcas needed):
+//   - Mtail + M_tcas stack PMOS cascode under pbias = supply/2
+//   - M7 diode-connected -> mid_n = Vgs_M7; M8 mirrors at mid_p
+//   - M3 diode-connected -> out_n = mid_n + Vgs_M3; M4 mirrors at out_p
+//   - Output high impedance at out_p:
+//        rds_M2 || (rds_M4 + gm_M4 * rds_M4 * rds_M8)
+//
+// Sizing (sky130 1.8 V, lengthened for >50 dB gain spec):
+//   Mtail / M_tcas:        W=8u  L=1u  (tail current source, low headroom impact)
+//   M1 / M2 diff pair:     W=20u L=1u  (high gm, 2x length vs. v121 for rds_M2 boost)
+//   M3 / M4 NMOS cascode:  W=10u L=2u  (long L = high rds = bottom output Z dominates)
+//   M7 / M8 NMOS sink:     W=10u L=2u  (long L = high rds on the sink legs too)
+//
+// Measured (sky130 tt corner, vcm=0.9 V, pbias=0.9 V via testbench):
+//   gain_dc(vdb(out_p) @ f=1 Hz, AC=1V differential drive) = 52.68 dB
+//   pre vs. post-sim 8% W perturbation: delta = +0.04% (CONSISTENT tier)
+//
+// Matched pairs (4 total): M1-M2, M3-M4, M7-M8, Mtail-M_tcas.
+// External ports: inn, inp, out_n, out_p, vdd, vss, pbias  (7 ports).
+// Internal nets: tail, tail2, mid_n, mid_p.
+
+package demo.e2e;
+pdk "sky130";
+
+cell TelescopicCascodeOTA(inn, inp, out_n, out_p, vdd, vss, pbias) {
+  topology {
+    device Mtail : pmos {
+      drain = tail;
+      gate = pbias;
+      source = vdd;
+      body = vdd;
+      W = 8u;
+      L = 1u;
+    }
+    device M_tcas : pmos {
+      drain = tail2;
+      gate = pbias;
+      source = tail;
+      body = vdd;
+      W = 8u;
+      L = 1u;
+    }
+    device M1 : pmos {
+      drain = out_n;
+      gate = inn;
+      source = tail2;
+      body = vdd;
+      W = 20u;
+      L = 1u;
+    }
+    device M2 : pmos {
+      drain = out_p;
+      gate = inp;
+      source = tail2;
+      body = vdd;
+      W = 20u;
+      L = 1u;
+    }
+    device M3 : nmos {
+      drain = out_n;
+      gate = out_n;
+      source = mid_n;
+      body = vss;
+      W = 10u;
+      L = 2u;
+    }
+    device M4 : nmos {
+      drain = out_p;
+      gate = out_n;
+      source = mid_p;
+      body = vss;
+      W = 10u;
+      L = 2u;
+    }
+    device M7 : nmos {
+      drain = mid_n;
+      gate = mid_n;
+      source = vss;
+      body = vss;
+      W = 10u;
+      L = 2u;
+    }
+    device M8 : nmos {
+      drain = mid_p;
+      gate = mid_n;
+      source = vss;
+      body = vss;
+      W = 10u;
+      L = 2u;
+    }
+  }
+  spec {
+    gain_dc : real >= 50;
+  }
+}
+
+annotate TelescopicCascodeOTA {
+  M1: @matching(M2);
+  M2: @matching(M1);
+  M3: @matching(M4);
+  M4: @matching(M3);
+  M7: @matching(M8);
+  M8: @matching(M7);
+  Mtail: @matching(M_tcas);
+  M_tcas: @matching(Mtail);
+}

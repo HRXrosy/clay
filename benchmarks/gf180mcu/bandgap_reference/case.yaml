@@ -1,0 +1,19 @@
+schema: clay.case/v1
+id: bandgap_r158_auto_gf180
+title: bandgap_r158_auto_gf180
+maturity: L1_PARSE
+source:
+  clay: source/design.clay
+  top_cell: BandgapBiasRobustR158
+metadata:
+  pdk: gf180mcu
+  source_spice: benchmarks/gf180mcu/bandgap_reference/bandgap_r158_auto_gf180.cir
+  presim_module: benchmarks.gf180mcu.bandgap_reference.scripts.presim_driver
+  postsim_module: benchmarks.gf180mcu.bandgap_reference.scripts.postsim_driver
+  postsim_function: run_post_kpis
+  testbenches:
+    - tb_bandgap_r158.sp
+  intent_flow:
+    schema: clay.intent-flow/v1
+    variant: current
+    mode: generate

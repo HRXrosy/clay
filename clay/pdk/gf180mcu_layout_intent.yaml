@@ -1,0 +1,359 @@
+# gf180mcu-specific layout design intent + gotchas.
+#
+# Process-bound: every entry below is a quirk / convention / device-realization
+# detail tied to the gf180mcu PDK + the Magic / ngspice toolchain on it. When
+# we add another PDK (sky130, ...), it gets its OWN file at
+# clay/pdk/<pdk_id>_layout_intent.yaml; the cross-PDK principles live in
+# clay/layout/layout_knowledge.yaml.
+#
+# Each entry:
+#   id          short slug
+#   pattern     when does this apply on gf180mcu
+#   diagnosis   what goes wrong if you don't account for it
+#   fix         what to do
+#   source      where it was learned (cell + agent run)
+#   tags        for filtering
+
+schema: clay.pdk_layout_intent/v1
+pdk_id: gf180mcu
+
+intent:
+
+  - id: gf180_m_does_not_scale_current
+    pattern: gf180mcu subckt MOS instance with m= or nf= multiplier
+    diagnosis: |
+      The gf180mcu PDK subckt wrappers (nfet_03v3 / pfet_03v3 / nmos_3p3 /
+      pmos_3p3) do NOT propagate the multiplier to the inner BSIM model.
+      Setting m=4 gives the SAME Id as m=1. Mirror ratios set by m= silently
+      fail; the OTA bias collapses; gain plummets.
+    fix: |
+      Set mirror ratios and gm via PHYSICAL width W, or instantiate N explicit
+      parallel subckts. two_stage / fc_ota / ldo / bandgap pre-sim agents all
+      independently hit this; treat as a hard rule on gf180mcu.
+    source: gf180mcu ports (two_stage / fc_ota / ldo / bandgap pre-sim)
+    tags: [ngspice, sizing]
+
+  - id: pmos_3p3_w_bin_ceiling
+    pattern: single pmos_3p3 (or nfet/pfet_03v3) instance with W > ~100 um
+    diagnosis: |
+      A single subckt instance with W above ~100 um misses the BSIM bin
+      and ngspice rejects with "could not find a valid modelname".
+    fix: |
+      Split into N parallel unit cells, each W <= 100 um (LDO pass FET = 8 x W=100).
+    source: ldo pre-sim
+    tags: [ngspice, sizing]
+
+  - id: option_scale_required_in_tb
+    pattern: gf180mcu testbench using bare-um W/L numbers in the .cir
+    diagnosis: |
+      circuits/_harness.py PDK preamble does NOT inject `.option scale`. If
+      the .cir / sizing uses bare-um numbers (e.g. W=10) they are interpreted
+      as METERS without scale, BSIM bin rejects.
+    fix: |
+      Add `.option scale=1.0u` immediately after the @GF180_PDK marker in
+      every tb.
+    source: ldo pre-sim
+    tags: [ngspice, testbench]
+
+  - id: scale_um_bin_fp_rounding
+    pattern: .option scale=1u multiplying a Magic-emitted W=10u (with 'u')
+    diagnosis: |
+      `.option scale=1u` x ngspice's already-suffixed `w=10u` gives
+      9.999...e-6 (FP), just outside BSIM bin wmin=1e-5 -> bin miss.
+    fix: |
+      Strip the 'u' suffix from W/L on each Magic-emitted card before
+      post-sim so `scale=1u x 10 = 1e-5` cleanly.
+    source: ldo post-sim
+    tags: [magic, ngspice, post-pex]
+
+  - id: magic_model_name_aliasing
+    pattern: Magic ext2spice on a gf180mcu layout, post-sim against the PDK lib
+    diagnosis: |
+      Magic emits subckt instances as `pfet_03v3` / `nfet_03v3`, but the
+      AnalogGym PDK ngspice lib defines `pmos_3p3` / `nmos_3p3` subckts.
+      The post-PEX deck fails with "model not found".
+    fix: |
+      Rewrite Magic's model names to the PDK lib names in the post-PEX
+      netlist (a 4-line text sub) or include both alias subckts.
+    source: ldo + two_stage + fc_ota post-sim
+    tags: [magic, ngspice, post-pex]
+
+  - id: magic_nwell_unifies_same_well
+    pattern: layout with multiple PMOS groups whose SOURCES are different nets
+    diagnosis: |
+      Magic ext2spice unifies every polygon in the SAME Nwell into one
+      extracted net. If two PMOS groups share a merged Nwell but their
+      sources are different rails (e.g. vdd vs ntail), the extracted
+      sources collapse onto one net -> the OTA mis-biases (Vref/Vout shifts
+      by tens of percent; gain crashes).
+    fix: |
+      Keep PMOS groups with DIFFERENT source rails in SEPARATE Nwells with
+      at least NW.2b spacing between them (GROUP_GAP_NM constant). Merging
+      Nwells is safe ONLY within a same-source-rail group.
+    source: two_stage redo agent
+    tags: [magic, nwell]
+
+  - id: pmos_bulk_explicit_well_tap_label
+    pattern: PMOS device emitted by build_foldable_device; intended bulk = vdd
+    diagnosis: |
+      coclean_5tota_v163.build_foldable_device emits a PMOS well tap but
+      the M1 well-tap column does NOT reach the source-rail M1 strip;
+      Magic extracts the bulk as a floating net -> Vref / Vout drifts
+      ~18% (caught in bandgap layout).
+    fix: |
+      Place an explicit M1 polygon tagged with 'vdd' on each PMOS device's
+      well-tap region so Magic ties the bulk to the supply. Latent bug in
+      build_foldable_device for PMOS, flagged for upstream fix.
+    source: bandgap layout agent
+    tags: [magic, nwell, bandgap]
+
+  - id: pnp_df14_requires_ncomp_companion_context
+    status: resolved
+    phase: bjt_substrate_context_materialization
+    pattern: GF180 vertical PNP cell or internally strapped PNP bank placed without its surrounding circuit substrate context
+    diagnosis: |
+      The foundry PNP artwork contains one P-substrate contact per physical
+      emitter unit.  GF180 rule DF.14_3.3V requires each such PCOMP contact
+      outside Nwell to lie within 20 um of NCOMP outside Nwell.  The standalone
+      vendor unit therefore reports one DF.14 marker and an eight-unit bank
+      reports eight while remaining otherwise geometry-clean and full-LVS
+      matched.  Adding a P-type guard ring is the wrong polarity: the measured
+      experiment added another PCOMP contact and increased the count to nine.
+    fix: |
+      Preserve the PNP fixed artwork, and materialize nearby NCOMP outside Nwell
+      companion taps with N+ implant, contact, and Metal1 tied to the declared
+      substrate/body net.  Drive that obligation through the existing .clay
+      @tap intent and PDK-owned geometry data; do not infer a P guard ring and
+      do not special-case Bandgap, a device name, or the literal GND net.
+    evidence:
+      standalone_vendor_pnp_df14_count: 1
+      eight_unit_bank_df14_count: 8
+      rejected_p_guard_ring_df14_count: 9
+      declared_companion_tap_df14_count: 0
+      full_lvs_bank_model: vpnp_0p42x10
+      full_lvs_bank_parallel_parameter: NE=8
+      red_green_test: tests/test_bjt_gf180_full_lvs.py::test_declared_gf180_pnp_companion_tap_closes_df14_and_preserves_full_lvs
+    source: reference Bandgap GF180 fixed-cell bank full LVS and foundry DRC, 2026-07-31
+    tags: [bjt, pnp, latchup, substrate-tap, trajectory, characterized]
+
+  - id: magic_distributed_r_pessimism_on_long_m4
+    pattern: Magic ext2spice with resistance enabled, long M4 vertical columns
+    diagnosis: |
+      Magic's 2.5D distributed-R extraction adds many series R elements on
+      long M4 columns (300+ resistors in two_stage's PEX). The Miller
+      compensation path picks up several kOhm of distributed R that the
+      schematic doesn't model -> GBW + PM drift in post-sim.
+    fix: |
+      Minimize cross-channel M4 runs on gf180mcu; prefer M3 + short risers.
+      If a long M4 trunk is unavoidable, expect 1.5-2x post-PEX GBW shift
+      and a few tens of degrees PM shift -- document in DESIGN_POST.md.
+    source: two_stage redo
+    tags: [magic, routing, post-pex]
+
+  - id: cc_realization_pmoscap_rz_rm1
+    pattern: Miller-compensation Cc + Rz on gf180mcu
+    diagnosis: |
+      MIM cells in some gf180mcu PDK forks aren't available; Rz as a poly
+      resistor needs the rppoly_h cell which the standard router may not
+      lay.
+    fix: |
+      Cc = pmoscap_3p3 (gf180mcu PMOS MOS-cap, ~4.4 fF/um^2). Rz = rm1
+      (metal-1 resistor, ~0.09 Ohm/sq, ~22 squares for 2 kOhm).
+    source: two_stage redo
+    tags: [compensation, devices]
+
+  - id: dense_via_cuts_are_not_rail_layer_facts
+    status: resolved
+    phase: rail_placement_scene
+    pattern: dense GF180 device arrays produce thousands of Via2 cut conductors before an edge rail is placed
+    diagnosis: |
+      The pre-rail scene used to carry every conductor layer even though rail
+      spacing and the candidate enumerator compare only conductors on the
+      declared rail's own layer.  LDO1 therefore supplied 7,132 facts, including
+      6,500 Via2 cuts on (38,0), to a Metal3 (42,0) rail proof and hit the honest
+      4,096-fact bound before routing began.  Raising the bound would only hide
+      irrelevant-scene growth.
+    fix: |
+      Build the bounded rail scene from exact conductors on the set of declared
+      rail layer keys.  Keep active projections and terminal access facts intact;
+      do not truncate facts and do not special-case a cell, net, or PDK id.
+    pdk_provenance_sha256: d0d711bb64aacc1eae387ecdb63f1359d674d578d7da74ce1eb84fed8bc0e702
+    evidence:
+      before_conductor_facts: 7132
+      irrelevant_via2_cut_facts: 6500
+      after_same_layer_conductor_facts: 36
+      rail_layer: [42, 0]
+      irrelevant_via2_layer: [38, 0]
+      red_green_test: tests/test_over_cell_power_rail_materializer.py::test_pre_rail_scene_discards_conductors_on_layers_no_rail_can_occupy
+    source: reference LDO1 four-PDK flow at pre-fix commit f0fff18
+    tags: [routing, rail, via, trajectory, resolved]
+
+  - id: via_selector_preserves_causal_blocker_closure
+    status: characterized_guardrail
+    signoff_scope: diagnostic_only
+    phase: component_access_via_selection
+    pattern: dense GF180 owned-terminal components require many exact via landing alternatives
+    diagnosis: |
+      Treating an atomic via candidate as finished after its first hard DRC
+      rejection reduced local work, but it also discarded the other exact blocker
+      facts consumed by causal-frontier refinement.  On the same LDO1 intent and
+      60 s diagnostic watchdog, that fail-fast experiment reached SUB with only
+      one start and zero A* expansions.  It was reverted; a via-selector rejection
+      is therefore not a diagnostics-only side effect in the current router.
+    fix: |
+      Preserve the complete hard-rejection set for every via model.  Remove
+      duplicated work by sharing each immutable committed-metal and fixed-obstacle
+      spatial query between the contact/spacing predicates that consume it.  Do
+      not cap candidates, drop later DRC rules, change the formal 900 s budget, or
+      special-case this PDK, net, or circuit.  This entry is a diagnostic guardrail,
+      not evidence that the GF180 layout has signed off.
+    pdk_provenance_sha256: d0d711bb64aacc1eae387ecdb63f1359d674d578d7da74ce1eb84fed8bc0e702
+    evidence:
+      fail_fast_stop_sha256: a6635da63a43901328d5d1c47b2c4fecbf82c33822bbc4c83ee6740d2ae12b50
+      full_evidence_cached_stop_sha256: 665d237525071f2dc6f665b8cb4f78e589f99260c33942e60a2eeab7388e4a76
+      diagnostic_watchdog_ms: 60000
+      fail_fast_frontier:
+        net: SUB
+        phase: astar_potential
+        expansions: 0
+        starts: 1
+        goals: 875
+      full_evidence_cached_frontier:
+        net: SUB
+        phase: astar_potential
+        expansions: 4096
+        starts: 205
+        goals: 890
+      red_green_tests:
+        - tests/test_engine_gridless.py::test_standalone_via_legality_reuses_each_pad_committed_scan
+        - tests/test_engine_gridless.py::test_standalone_via_legality_reuses_each_pad_fixed_obstacle_query
+    source: reference LDO1 GF180 diagnostic comparison at commit 6598c94
+    tags: [routing, via, causal-frontier, trajectory, guardrail]
+
+  - id: vout_lazy_via_selector_required
+    status: open_blocker
+    signoff_scope: formal_900s
+    phase: astar_potential
+    pattern: VOUT joins large output-device and compensation-component access domains
+    diagnosis: |
+      The canonical GF180 LDO1 layout at baa3eb9 exhausted its declared 900 s
+      watchdog on VOUT after rail placement and earlier nets had progressed.  The
+      exact search was seeded from the smaller endpoint domain, but still
+      materialized 12,488 goal landings and injected their 1,868 distinct x
+      coordinates into the routing graph.  Memory stayed below the project limit;
+      this is endpoint/via-domain work, not an out-of-memory failure and not a
+      license to raise the watchdog.  A subsequent exact lower-bound enumeration
+      of complete pattern access pairs was also rejected: in a same-tree 60 s A/B
+      it regressed from the later SUB frontier to the earlier GNDA frontier because
+      blocked pattern geometry was more expensive than the A* work it avoided.  A
+      second experiment kept every goal but removed crossings between different
+      goals' private axes.  Its formal 900 s run reduced one SUB edge from 6,656
+      Cartesian coordinates to 4,673 active coordinates, yet never progressed past
+      SUB (zero expansions on the final retry), while the baseline reached VOUT.
+      Other goal axes can therefore be connectivity-relevant detours in the current
+      Hanan graph; they are not removable without a separate exact witness.
+    fix: |
+      Follow the anaroute via-selector/access-component boundary: keep the exact
+      legal landing domain and complete causal blockers, but select/query landing
+      alternatives lazily against the A* frontier instead of materializing every
+      goal coordinate as a global candidate axis.  The implementation must remain
+      circuit-, net-, and PDK-neutral.  Close this blocker only after a red/green
+      access-domain test and a canonical GF180 layout pass at the unchanged 900 s
+      policy; DRC/full-LVS/PEX remain separate downstream gates.  Do not retry
+      complete access-pair enumeration in pattern-first; compression must happen at
+      the access-domain/graph boundary without repeated blocked geometry probes.
+      Do not delete cross-goal Hanan intersections merely because neither endpoint
+      owns the crossing; retain the exact graph until a connectivity-preserving
+      contraction proof exists.
+    pdk_provenance_sha256: d0d711bb64aacc1eae387ecdb63f1359d674d578d7da74ce1eb84fed8bc0e702
+    evidence:
+      stop_sha256: 6b4f4268ca6a050fe1509552bc64f9fe2e2006f59325a0071f9c835b11b96b81
+      watchdog_ms: 900000
+      net: VOUT
+      phase: astar_potential
+      expansions: 57344
+      starts: 790
+      goals: 12488
+      terminal_access_priced: 789
+      xs: 1868
+      ys: 103
+      layers: 3
+      memory_peak_system_gib: 23.77
+      memory_peak_tree_gib: 1.913
+      rejected_pattern_pair_enumeration:
+        diagnostic_watchdog_ms: 60000
+        baseline_stop_sha256: d061958c2a4e32f734131b47263c4e7c2689799524d478dbadc8b9d5925203f2
+        experiment_stop_sha256: 8ac5d1f5dfa1f44e9547a2c00645c7dd69dc6bea6de0b5f8b84cd28d49ed7495
+        baseline_frontier:
+          net: SUB
+          phase: astar_geometry
+          expansions: 4096
+          starts: 205
+          goals: 890
+        experiment_frontier:
+          net: GNDA
+          phase: astar_potential
+          expansions: 2048
+          starts: 1
+          goals: 1806
+        verdict: reverted_earlier_net_regression
+      rejected_sparse_goal_spokes:
+        watchdog_ms: 900000
+        stop_sha256: 94528a5abec674b71c4c176a1b38ad57a4f95696422c6e96287b5cdff48124a3
+        frontier:
+          net: SUB
+          phase: astar_potential
+          expansions: 0
+          starts: 1
+          goals: 628
+          terminal_access_priced: 1
+          xs: 104
+          ys: 64
+          cartesian_coordinates: 6656
+          routing_coordinates: 4673
+        memory_peak_system_gib: 24.481
+        memory_peak_tree_gib: 1.913
+        verdict: reverted_connectivity_regression_before_vout
+        run_summary: ldo_dev/out/reference_ldo_four_pdk/gf180mcu_88cc3bd_formal/work/work/run_summary.json
+      rejected_fixed_obstacle_direct_map:
+        diagnostic_watchdog_ms: 120000
+        cache_slots: 65536
+        reuse_probe:
+          watchdog_ms: 60000
+          queries: 2608202
+          modeled_hits: 1621140
+          modeled_misses: 987062
+        baseline_profile:
+          stop_sha256: 0d1abf06ea5146c9d20b245d02877338c62310d8edba0ec8d37bbb55d5732b94
+          spatial_query_calls: 15350014
+          obstacle_scan_cumulative_sec: 10.616
+          via_legal_cumulative_sec: 52.809
+          route_edge_calls: 167
+          frontier:
+            net: SUB
+            phase: astar
+            expansions: 2048
+            starts: 206
+            goals: 890
+            potential_transform_switches_total: 165
+          memory_peak_system_gib: 23.617
+          memory_peak_tree_gib: 0.3
+        experiment_profile:
+          stop_sha256: e824125dd246131bb0637c4b69cbb4ee8b5a90fc8c2b983a0c121cfb10108bd5
+          spatial_query_calls: 13202709
+          obstacle_scan_cumulative_sec: 13.215
+          via_legal_cumulative_sec: 56.968
+          route_edge_calls: 139
+          frontier:
+            net: SUB
+            phase: astar_geometry
+            expansions: 0
+            starts: 1
+            goals: 885
+            potential_transform_switches_total: 136
+          memory_peak_system_gib: 23.154
+          memory_peak_tree_gib: 0.305
+        verdict: reverted_python_key_overhead_earlier_frontier
+      run_summary: ldo_dev/out/reference_ldo_four_pdk/gf180mcu_baa3_formal/work/run_summary.json
+    source: reference LDO1 GF180 canonical layout at commit baa3eb9
+    tags: [routing, via, access-domain, trajectory, open-blocker]

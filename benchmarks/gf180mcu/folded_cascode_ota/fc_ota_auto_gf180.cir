@@ -1,0 +1,58 @@
+* Folded-Cascode OTA -- gf180mcu 3.3V (Automated Clay Flow Package)
+* Derived verbatim from circuits/fc_ota/fc_ota.cir (20 MOSFETs: 11 core + 9 bias).
+* Spec: DC_Gain >= 80 dB, GBW >= 10 MHz @ CL=2pF, PM >= 60 deg, Idd <= 303 uA
+
+.param W_DIFF       = 6.6u
+.param L_DIFF       = 1u
+.param W_BIAS       = 1.65u
+.param L_BIAS       = 1u
+.param W_TAIL       = 3.3u
+.param L_TAIL       = 1u
+
+.param W_FOLD       = 60u
+.param W_FOLD_BIAS  = 30u
+.param L_FOLD       = 2u
+
+.param W_PCASC      = 53.4u
+.param W_PCASC_BIAS = 8.9u
+.param L_PCASC      = 3u
+
+.param W_NCASC      = 9.1u
+.param L_NCASC      = 2u
+
+.param W_NMIRROR    = 3u
+.param L_NMIRROR    = 2u
+
+.param W_PAD_P      = 4u
+.param L_PAD_P      = 0.5u
+.param W_PAD_N      = 0.5u
+.param L_PAD_N      = 1u
+
+.subckt folded_cascode_ota vinp vinn vout ibias vdd vss
+
+* --- Bias Tree (9 MOSFETs) ---
+xMMNbias       ibias       ibias      vss       vss nmos_3p3 W={W_BIAS}       L={L_BIAS}
+xMMPfold_bias  vbias_fold  vbias_fold vdd       vdd pmos_3p3 W={W_FOLD_BIAS}  L={L_FOLD}
+xMMNfold_bias  vbias_fold  ibias      vss       vss nmos_3p3 W={W_BIAS}       L={L_BIAS}
+xMMP_vbcp_1    vbc_p_mid   vbc_p      vdd       vdd pmos_3p3 W={W_PAD_P}      L={L_PAD_P}
+xMMP_vbcp_2    vbc_p       vbc_p      vbc_p_mid vdd pmos_3p3 W={W_PCASC_BIAS} L={L_PCASC}
+xMMN_vbcp_sink vbc_p       ibias      vss       vss nmos_3p3 W={W_BIAS}       L={L_BIAS}
+xMMP_vbcn_src  vbc_n       vbias_fold vdd       vdd pmos_3p3 W={W_FOLD_BIAS}  L={L_FOLD}
+xMMN_vbcn_2    vbc_n       vbc_n      vbc_n_mid vss nmos_3p3 W={W_NCASC}      L={L_NCASC}
+xMMN_vbcn_1    vbc_n_mid   vbc_n      vss       vss nmos_3p3 W={W_PAD_N}      L={L_PAD_N}
+
+* --- Core Folded-Cascode OTA (11 MOSFETs) ---
+xMN1           vmid_left1  vinp       ntail     vss nmos_3p3 W={W_DIFF}       L={L_DIFF}
+xMN2           vmid_right1 vinn       ntail     vss nmos_3p3 W={W_DIFF}       L={L_DIFF}
+xMNtail        ntail       ibias      vss       vss nmos_3p3 W={W_TAIL}       L={L_TAIL}
+xMP1_bottom    vmid_left1  vbias_fold vdd       vdd pmos_3p3 W={W_FOLD}       L={L_FOLD}
+xMP3_bottom    vmid_right1 vbias_fold vdd       vdd pmos_3p3 W={W_FOLD}       L={L_FOLD}
+xMP2_top       vd_left     vbc_p      vmid_left1  vdd pmos_3p3 W={W_PCASC}    L={L_PCASC}
+xMP4_top       vout        vbc_p      vmid_right1 vdd pmos_3p3 W={W_PCASC}    L={L_PCASC}
+xMN5_bottom    vmid_left2  vd_left    vss       vss nmos_3p3 W={W_NMIRROR}    L={L_NMIRROR}
+xMN7_bottom    vmid_right2 vd_left    vss       vss nmos_3p3 W={W_NMIRROR}    L={L_NMIRROR}
+xMN6_top       vd_left     vbc_n      vmid_left2  vss nmos_3p3 W={W_NCASC}    L={L_NCASC}
+xMN8_top       vout        vbc_n      vmid_right2 vss nmos_3p3 W={W_NCASC}    L={L_NCASC}
+
+.ends folded_cascode_ota
+

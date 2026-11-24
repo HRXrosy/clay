@@ -1,0 +1,76 @@
+// Small-circuit .clay -> GDS Stage 1 demo (extended): 5T OTA.
+// R100+ iteration on demo_diff_pair_e2e_v120.clay — now exercising
+// multi-role device set (tail current source + diff pair + mirror load).
+//
+// Topology (textbook 5T OTA, Razavi Ch. 9 PMOS-input variant):
+//   Mtail : PMOS, gate=pbias, drain=tail,  source=vdd
+//   M1    : PMOS, gate=inn,   drain=out_n, source=tail (diff pair)
+//   M2    : PMOS, gate=inp,   drain=out_p, source=tail (diff pair)
+//   M3    : NMOS, gate=d1,    drain=out_n, source=vss (mirror, diode)
+//   M4    : NMOS, gate=d1,    drain=out_p, source=vss (mirror)
+//
+// Note: This single-cell .clay flattens the OTA into one CellDef rather
+// than instantiating subcells. The lowering step treats each device
+// independently and applies the matching/symmetric annotations to the
+// pairs that ARE matched (M1/M2 and M3/M4).
+//
+// Sizing taken from clay_workflow_demo.py DEMO_SPICE (textbook 5T):
+//   Mtail W=4u L=1u, M1/M2 W=20u L=0.5u, M3/M4 W=10u L=0.5u
+
+package demo.e2e;
+pdk "sky130";
+
+cell FiveTransistorOTA(inn, inp, out_n, out_p, vdd, vss, pbias) {
+  topology {
+    device Mtail : pmos {
+      drain = tail;
+      gate = pbias;
+      source = vdd;
+      body = vdd;
+      W = 4u;
+      L = 1u;
+    }
+    device M1 : pmos {
+      drain = out_n;
+      gate = inn;
+      source = tail;
+      body = vdd;
+      W = 20u;
+      L = 0.5u;
+    }
+    device M2 : pmos {
+      drain = out_p;
+      gate = inp;
+      source = tail;
+      body = vdd;
+      W = 20u;
+      L = 0.5u;
+    }
+    device M3 : nmos {
+      drain = out_n;
+      gate = out_n;
+      source = vss;
+      body = vss;
+      W = 10u;
+      L = 0.5u;
+    }
+    device M4 : nmos {
+      drain = out_p;
+      gate = out_n;
+      source = vss;
+      body = vss;
+      W = 10u;
+      L = 0.5u;
+    }
+  }
+  spec {
+    gain_dc : real >= 30;
+  }
+}
+
+annotate FiveTransistorOTA {
+  M1: @matching(M2);
+  M2: @matching(M1);
+  M3: @matching(M4);
+  M4: @matching(M3);
+}

@@ -1,0 +1,1122 @@
+// Clay v0.0.9 minimal grammar.
+// Supports: package + pdk + import + verify { spec, sizing_override }.
+// Does NOT yet support: full cell bodies (4 blocks), extends, private,
+// extension declarations, multi-file packages.
+
+start: stmt+
+
+?stmt: package_decl
+     | pdk_decl
+     | import_decl
+     | cell_alias_def
+     | cell_def
+     | verify_block
+     | verify_ref
+     | fn_def
+     | annotate_decl
+     | layout_intent_decl
+     | flow_decl
+     | quality_decl
+     | policy_decl
+
+package_decl: "package" dotted_name ";"
+pdk_decl:     "pdk" string ";"
+// v0.0.28: import_decl now has two forms:
+//   1. Python-module form (legacy): `import clay.stdlib.opamps;`
+//      Dotted CNAME tokens, resolved through the package allow-list.
+//   2. File-path form (new):        `import './lib/opamps.clay';`
+//      String-quoted relative path, recursively parsed and merged.
+// The two forms are disambiguated by token shape: `dotted_name` is a
+// sequence of CNAME tokens separated by "."; `string` is a quoted
+// literal. No grammar ambiguity — different token streams entirely.
+?import_decl: import_module_decl
+            | import_file_decl
+import_module_decl: "import" dotted_name ("as" CNAME)? ";"
+import_file_decl:   "import" string ("as" CNAME)? ";"
+
+// Clay strings may use single or double quotes (per spec §1.3 single is
+// canonical; double accepted for compatibility).
+string: SINGLE_QUOTED_STRING | DOUBLE_QUOTED_STRING
+SINGLE_QUOTED_STRING: /'[^']*'/
+DOUBLE_QUOTED_STRING: /"[^"]*"/
+
+// v0.0.21: verify_block body becomes a list of body parts (spec required;
+// sizing_override and corners optional, any order). cell_alias_def keeps
+// the older positional form for back-compat — the cell_alias surface form
+// is just spec + sizing_override and not slated to grow more sub-blocks.
+//
+// v0.0.29 (G4 multi-setup verify): verify_body_part now also accepts
+// `setup_block` and `derived_measure_decl`. A verify body may mix
+// classic body parts (spec / sizing_override / corners / temps) with
+// new multi-setup parts (setup blocks + derived measures) — but the
+// transformer rejects mixed-style bodies at parse time so the surface
+// stays unambiguous. The single-setup form (spec required) and the
+// multi-setup form (>=1 setup block; top-level spec optional) are
+// mutually exclusive within one `verify { ... }`.
+verify_block: "verify" qualified_name "{" verify_body_part+ "}"
+
+?verify_body_part: spec_block
+                | sizing_override_block
+                | corners_block
+                | temps_block
+                | setup_block
+                | derived_measure_decl
+
+// v0.0.29 (G4): a `setup NAME { ... }` block declares one test
+// configuration within a multi-setup verify. Each setup has its own
+// `drive` block (forces / sources to apply) and its own `spec` block
+// (assertions on the measures returned by THIS setup's sim run).
+// `sizing_override` / `corners` / `temps` declared at the setup
+// level are reserved for a later version — for v0 the only setup
+// body parts are `drive_block` (required) and `spec_block` (optional).
+setup_block: "setup" CNAME "{" setup_body_part+ "}"
+?setup_body_part: drive_block | spec_block
+
+// v0.0.29 (G4): `drive { key = value; ... }` declares the testbench
+// stimulus mode for a setup. Only the keys listed in `_VALID_DRIVE_KEYS`
+// (parser.py) are accepted: ac_diff, ac_common, ac_supply_p, ac_supply_n.
+// The transformer enforces "at least one and at most one of these
+// keys is present" — mixing forms or leaving the block empty is
+// rejected at parse time.
+drive_block: "drive" "{" drive_field+ "}"
+drive_field: CNAME "=" number ";"
+
+// v0.0.29 (G4): top-level cross-setup derived measure declaration.
+// Form: `measure cmrr := adm.gain_dc - acm.gain_dc;`
+// The RHS is captured as an opaque expression string and evaluated
+// post-simulation by `clay.verifier`. Allowed operators are limited
+// to scalar arithmetic on `<setup_name>.<measure_name>` references —
+// see `_eval_derived_expr` in the verifier for the supported subset.
+derived_measure_decl: "measure" CNAME ":=" derived_expr ";"
+// Tokens of the RHS expression. We capture them as an ordered list
+// of bare CNAME/SIGNED_NUMBER pieces plus operator literals, then
+// the transformer joins them with single-space separators into one
+// string that the verifier re-parses. Keeping the AST simple at
+// parse time so v0 doesn't drag in a full expression evaluator.
+derived_expr: derived_expr_token+
+?derived_expr_token: derived_expr_ref
+                  | SIGNED_NUMBER
+                  | DERIVED_OP
+                  | "(" derived_expr ")" -> derived_expr_paren
+derived_expr_ref: CNAME "." CNAME
+DERIVED_OP: "+" | "-" | "*" | "/"
+
+// v0.0.17: declare a local cell as an alias / partial-application of an
+// imported stdlib cell, then verify it by local name.
+cell_alias_def: "cell" CNAME "=" qualified_name "{" spec_block sizing_override_block? "}" ";"
+verify_ref: "verify" CNAME ";"
+
+// v0.0.19: define a cell entirely in .clay text — no Python alias.
+// Body order: topology / spec / sizing / corners are each optional and any-order.
+cell_def: "cell" CNAME "(" port_list ")" "{" cell_body_part+ "}"
+// v0.0.22 (G10): optional `: <role>` annotation per port. Bare ports
+// (role omitted) stay backward-compatible with every pre-existing
+// .clay file. Valid role set is enforced in the transformer
+// (parser.py) — `port_role` is just a CNAME at grammar level.
+port_list: port ("," port)*
+port: CNAME (":" port_role)?
+port_role: CNAME
+
+?cell_body_part: topology_block
+              | spec_block
+              | cell_sizing_block
+              | corners_block
+              | temps_block
+              | bias_tree_block
+              | combinator_block
+
+// v0.0.92 (combinator-in-source, Round 68): a `combinator { ... }`
+// block inside a cell body declares a combinator-algebra expression
+// over registered StageInterface templates. The block carries two
+// required fields and lowers at compile time to a `ComposedStage` via
+// `clay.stage_combinators.*`. Surface form:
+//
+//   cell three_stage(in, out, vdd, vss) {
+//     combinator three_stage_combo {
+//       stages = [common_source_pmos_input, common_source_pmos_input,
+//                 common_source_pmos_input];
+//       build = stages[0] >> stages[1] >> stages[2];
+//     }
+//     spec { gain_dc : real >= 60; }
+//   }
+//
+// Or with the compact `cascade_chain` form:
+//
+//   combinator nmcf_combo {
+//     stages = [stage_a, stage_b, stage_c];
+//     build = cascade_chain([stages[0], stages[1], stages[2]]);
+//   }
+//
+// `COMBINATOR_KW` is matched at priority 3 (higher than CNAME) so the
+// keyword lexes as its own terminal. The block body is exactly two
+// fields, in fixed order: `stages = [...];` then `build = expr;`.
+// The build expression supports the full combinator algebra:
+//   * `a >> b`               — cascade
+//   * `feedforward(src, sink, gain=K)`
+//   * `compensate(stage, miller=Cc, zero=Rz, target_pm_deg=PM)`
+//   * `mirror_match(a, b)`
+//   * `cascade_chain([s1, s2, ...])`
+// Stage references inside the expression are either `stages[N]`
+// (zero-indexed reference to a stage declared in the `stages = [...]`
+// list) or a bare template name.
+COMBINATOR_KW.3: "combinator"
+combinator_block: COMBINATOR_KW CNAME "{" combinator_stages_field combinator_build_field "}"
+combinator_stages_field: "stages" "=" "[" CNAME ("," CNAME)* ","? "]" ";"
+combinator_build_field: "build" "=" combinator_expr ";"
+
+// Combinator expression grammar — left-associative cascade via the
+// same suffix-list technique used by `expr_add` in `expr`. We give
+// `>>` the lowest precedence so `a >> b` reads as the cascade of two
+// atoms (call atoms, stage refs, names).
+//
+// Precedence (lowest to highest):
+//   combinator_expr → combinator_atom (">>" combinator_atom)*
+//   combinator_atom → combinator_call | combinator_stage_ref
+//                   | combinator_name | "(" combinator_expr ")"
+//   combinator_call → "feedforward"  "(" combinator_call_arg_list ")"
+//                   | "compensate"   "(" combinator_call_arg_list ")"
+//                   | "mirror_match" "(" combinator_call_arg_list ")"
+//                   | "cascade_chain" "(" "[" combinator_expr ("," combinator_expr)* "]" ")"
+//   combinator_stage_ref → "stages" "[" SIGNED_NUMBER "]"
+//   combinator_name      → CNAME
+combinator_expr: combinator_atom (CASCADE_OP combinator_atom)*
+CASCADE_OP: ">>"
+?combinator_atom: combinator_call
+                | combinator_stage_ref
+                | combinator_name
+                | "(" combinator_expr ")" -> combinator_paren
+combinator_call: combinator_call_kw "(" combinator_call_args ")"
+?combinator_call_kw: COMBINATOR_FEEDFORWARD_KW
+                  | COMBINATOR_COMPENSATE_KW
+                  | COMBINATOR_MIRROR_MATCH_KW
+                  | COMBINATOR_CASCADE_CHAIN_KW
+                  | COMBINATOR_DECOUPLE_KW
+                  | COMBINATOR_SAMPLE_AND_HOLD_KW
+COMBINATOR_FEEDFORWARD_KW.3:   "feedforward"
+COMBINATOR_COMPENSATE_KW.3:    "compensate"
+COMBINATOR_MIRROR_MATCH_KW.3:  "mirror_match"
+COMBINATOR_CASCADE_CHAIN_KW.3: "cascade_chain"
+// v0.0.95 (Round 72 D) — supply-rail decoupling combinator. Takes one
+// inner stage plus optional sizing kwargs (`decoupling_cap`,
+// `isolation_device_W`) or an auto-sizing target (`target_psrr_db`).
+COMBINATOR_DECOUPLE_KW.3:      "decouple"
+// v0.0.99 (Round 75 C) — track-and-hold combinator. Takes one inner
+// stage plus optional sizing kwargs (`hold_cap`, `sample_switch`,
+// `sample_bandwidth_target`) or an auto-sizing target
+// (`droop_rate_target`).
+COMBINATOR_SAMPLE_AND_HOLD_KW.3: "sample_and_hold"
+combinator_call_args: combinator_arg ("," combinator_arg)* ","?
+                    | combinator_chain_list
+?combinator_arg: combinator_kwarg
+              | combinator_expr
+combinator_kwarg: CNAME "=" number
+combinator_chain_list: "[" combinator_expr ("," combinator_expr)* "]"
+combinator_stage_ref: "stages" "[" SIGNED_NUMBER "]"
+combinator_name: CNAME
+
+// v0.0.26 (G2): bias_tree block — declarative bias chain. Lets .clay
+// source name and structure bias nodes explicitly instead of letting
+// the stage template hardcode them. Each `bias_decl` is one bias node:
+//   * `Iref: external = 10uA;`            — injected current with unit
+//   * `pbias: pmos_diode from Iref;`      — PMOS diode driven by current
+//   * `nbias: nmos_diode from pbias;`     — NMOS diode driven by mirror
+//   * `pbias_cas: pmos_mirror of pbias by 4;` — PMOS mirror (M=4)
+//   * `nbias_cas: nmos_mirror of nbias by 4;` — NMOS mirror (M=4)
+// Validation (no forward refs, no cycles, units required, non-empty)
+// is enforced in the parser transformer.
+bias_tree_block: "bias_tree" "{" bias_decl+ "}"
+bias_decl: CNAME ":" bias_rhs ";"
+?bias_rhs: bias_external
+         | bias_diode
+         | bias_mirror
+// `external` requires an explicit unit so "Iref: external = 10" without
+// `uA`/`mA`/etc. is rejected. We expose SIGNED_NUMBER + UNIT? as raw
+// child tokens (NOT going through `number`) so the transformer can see
+// whether a UNIT terminal was present and reject UNIT-less forms.
+bias_external: "external" "=" SIGNED_NUMBER UNIT?
+bias_diode:    BIAS_DIODE_KIND  "from" CNAME
+bias_mirror:   BIAS_MIRROR_KIND "of"   CNAME "by" SIGNED_NUMBER
+// Higher priority than CNAME so these literal keywords lex as their
+// own terminals instead of being swallowed by the generic identifier
+// pattern. Transformer reads the matched text via str(token).
+BIAS_DIODE_KIND.2:  "pmos_diode" | "nmos_diode"
+BIAS_MIRROR_KIND.2: "pmos_mirror" | "nmos_mirror"
+
+// v0.0.21: corners block — declarative multi-corner sweep.
+// Form: `corners { tt; ss; ff; }` — bare corner keywords (no quotes).
+// Validation against the PDK's _VALID_CORNERS set happens in the
+// transformer (parser.py) so the grammar stays PDK-agnostic.
+corners_block: "corners" "{" corner_name (";" corner_name)* ";"? "}"
+corner_name: CNAME
+
+// v0.0.24 (G11 temp sweep): temps block — declarative discrete
+// temperature sweep. Sister to corners_block. Form:
+//   `temps { -40C; 27; 125C; }` — values in Celsius, with optional `C`
+//   suffix for readability. The transformer strips the suffix and
+//   stores a list[float] of Celsius values onto the VerifyJob /
+//   CellDef. ngspice receives `.option temp = <value>` per simulation.
+// Combined with corners → cartesian product (corners × temps).
+temps_block: "temps" "{" temp_value (";" temp_value)* ";"? "}"
+temp_value: SIGNED_NUMBER ("C")?
+
+// v0.0.28 (cell composition): topology_block now accepts a mixed list
+// of `topology_field` entries (the pre-existing `style = '...'; rationale = ...;`
+// form), `instance_decl` entries that compose this cell from sub-cells,
+// AND (v0.0.28 device primitives) per-device declarations: `device M1 :
+// pmos { ... }`, `cap C1 { ... }`, `res R1 { ... }`. The three families
+// are mutually exclusive at the cell scope: declaring `style = '...'`
+// alongside `device ...` / `cap ...` / `res ...`, or alongside `instance
+// ...`, is rejected at compile time so the LLM sees an unambiguous error.
+//
+// v0.0.31 (G3 closeout): topology_item ALSO accepts `role_decl` entries
+// (`pmos_pair NAME { ... }`, `nmos_mirror NAME { ... }`, `pmos_cs NAME
+// { ... }`, ...). These are LEAN syntax-sugar declarations: at compile
+// time the role expands into N device primitives with auto-named local
+// pins. Role decls compose with raw `device M : pmos { ... }` decls in
+// the same cell (they all merge into `CellDef.devices` at parse time
+// via expansion in the transformer — kept compile-stage-free so the IR
+// type doesn't grow another sibling list).
+topology_block: "topology" "{" topology_item+ "}"
+?topology_item: topology_field | instance_decl | device_decl | cap_decl | res_decl | ind_decl | varactor_decl | role_decl | inv_decl | nand2_decl | dff_decl | dff_clear_decl | functional_role_decl
+topology_field: CNAME "=" topology_value ";"
+// v0.0.23 (G9): topology_value now also accepts an object literal so
+// `rationale = { input: '...', stage_count: '...' };` can be expressed
+// as a structured map<string, string> instead of one big string.
+?topology_value: string | number | CNAME | object_literal
+
+// v0.0.28 (cell composition): `instance NAME = pkg.path::Cell { port = net; ... };`
+// declares a sub-cell instantiation inside the outer cell's topology block.
+// Empty port-map `{ }` is rejected at the transformer level (must
+// explicitly bind every sub-cell port — no positional / implicit
+// fallback). The qualified_name resolution and full port-map
+// validation also live in the transformer.
+//
+// v0.0.34 (PLL gap A): an instance target may ALSO be a bare CNAME
+// (no `pkg::` prefix). The bare form resolves against cells defined
+// in the SAME .clay file or pulled in via `import './foo.clay';`
+// before falling back to the Python-package allow-list. This lets
+// users compose `.clay`-defined cells without needing to register
+// them in a Python package first.
+//
+//     // resolved from this file or an imported .clay file
+//     instance cp = ChargePump { up = u; down = d; out = o; ... };
+//     // resolved from `import 'lib.clay' as lib;` (namespaced)
+//     instance amp = lib::MyAmp { ... };
+//     // resolved from a Python-registered stdlib package
+//     instance opa = clay.stdlib.opamps::TwoStageMillerPMOS { ... };
+//
+// `instance_target` is an unnamed alternative so the transformer sees
+// either a string (`pkg::Cell` from qualified_name, or just `Cell`
+// from simple_cell_ref) and can disambiguate via presence of `::`.
+instance_decl: "instance" CNAME "=" instance_target "{" port_map_field* "}" ";"
+?instance_target: qualified_name | simple_cell_ref
+simple_cell_ref: CNAME
+port_map_field: CNAME "=" CNAME ";"
+
+// v0.0.28 (device primitives): per-device topology declarations.
+// Surface form (5-transistor diff pair excerpt):
+//   device M1 : pmos {
+//     drain = d1; gate = inp; source = tail; body = vdd;
+//     W = 20u; L = 0.5u; M = 1;
+//   }
+// Pin assignments accept BOTH long form (drain, gate, source, body)
+// AND short form (d, g, s, b). The long form is human/LLM-friendly;
+// the short form matches the internal `Device.pins` dict keys. The
+// parser canonicalizes long-form names to short-form before storing
+// in the IR. Capacitor / resistor pin names are `p` / `n` (positive /
+// negative) — same on both surface and IR.
+// Size fields are numbers with optional unit suffix (`W = 20u` →
+// 20e-6 m). Common keys: W, L, M, nf. M (multiplier) is integer-coerced.
+// `device_kind` is a bare CNAME — validated against the PDK adapter's
+// device_bindings set at compile time (parser stays PDK-agnostic).
+// `DEVICE_KW` / `CAP_KW` / `RES_KW` are matched at higher priority
+// than CNAME so the keywords lex as their own terminals instead of
+// being swallowed by the generic identifier pattern.
+DEVICE_KW.2: "device"
+CAP_KW.2:    "cap"
+RES_KW.2:    "res"
+IND_KW.2:    "ind"
+VARACTOR_KW.2: "varactor"
+device_decl: DEVICE_KW CNAME ":" CNAME "{" device_body_field+ "}"
+?device_body_field: device_pin_assignment | device_size_field | device_native_parameter
+device_pin_assignment: CNAME "=" CNAME ";"
+device_size_field:     CNAME "=" number ";"
+device_native_parameter: "native_param" CNAME "=" string ";"
+
+// Capacitor primitive. Pins are explicitly `p` / `n` (positive /
+// negative — matches the IR's _cap helper). `value` is the
+// capacitance with a unit suffix (`pF`, `fF`, etc.).
+cap_decl: CAP_KW CNAME "{" device_body_field+ "}"
+
+// Resistor primitive. Same shape as cap_decl. Value units (Ohm /
+// kOhm / MOhm) get resolved by the standard `number` rule.
+res_decl: RES_KW CNAME "{" device_body_field+ "}"
+
+// Inductor primitive. Same shape as cap_decl / res_decl. Pins are
+// `p` / `n`; `value` is inductance in henries (units `pH`, `nH`,
+// `uH`, `mH` resolve via the standard `number` rule). Used by LC
+// tanks (VCO), bias chokes, switched-mode passives.
+ind_decl: IND_KW CNAME "{" device_body_field+ "}"
+
+// Varactor (voltage-controlled cap) primitive. v0.0.58. Pins are
+// `p` (gate / control voltage) and `n` (body / drain-source tied
+// net = the actual cap terminal). Sized like a MOSFET (`W`, `L`,
+// optional `M` multiplier) rather than a passive `value` because
+// the SPICE emit pattern is a MOSCAP (PMOS with d=s=n, g=p). The
+// resulting cap is approximately Cox*W*L when |Vgs| > Vth_p (on)
+// and near 0 when |Vgs| < Vth_p (off). Used by LC-tank VCO frequency
+// tuning, switched-cap filters, vactor-based RC filters.
+varactor_decl: VARACTOR_KW CNAME "{" device_body_field+ "}"
+
+// v0.0.35 (PLL gap C): digital primitives. CMOS inverter / NAND2 / DFF
+// are syntactic sugar that expands at parse time to N concrete `device
+// M : pmos { ... }` / `device M : nmos { ... }` entries with auto-named
+// local nets prefixed by the primitive's local handle. The grammar only
+// learns three new keywords; the IR, compiler, and ngspice driver see
+// the same Device list they already handle for analog cells.
+//
+// Surface form (pin assignments + sizing fields, same shape as
+// device_decl):
+//
+//     inv inv1 {
+//       in = a; out = b; vdd = vdd; vss = vss;
+//       W = 1u; L = 0.5u;          // applies to both transistors
+//     }
+//     nand2 nd1 {
+//       a = x; b = y; out = z; vdd = vdd; vss = vss;
+//       W = 1u; L = 0.5u;
+//     }
+//     dff ff1 {
+//       d = data_in; clk = clock; q = data_out;
+//       vdd = vdd; vss = vss;
+//       W = 1u; L = 0.5u;
+//     }
+//
+// v0.0.40 (PLL phase-lock gap): a fourth digital primitive,
+// `dff_async_clear`, extends the v0.0.36 DFF with an active-LOW
+// asynchronous clear input (`clr`). Required when a textbook 3-state
+// PFD wants to reset both DFFs the moment its NAND2(up, dn) fires.
+//
+//     dff_async_clear ff_clr {
+//       d = data_in; clk = clock; q = data_out; clr = reset_n;
+//       vdd = vdd; vss = vss;
+//       W = 1u; L = 0.5u;
+//     }
+//
+// Semantics: when `clr` is LOW, both master and slave latches force
+// `q = 0` regardless of `clk`. Expansion: 18-MOS textbook DFF + 1
+// inverter (clr → clr_n) + 4 NMOS pull-downs (gate=clr_n, source=vss)
+// on the four latch storage nodes (m_out, m_fb, q, s_in) = 24 MOS.
+//
+// Required pins per kind (validated at parse time):
+//   inv:              in, out, vdd, vss
+//   nand2:            a, b, out, vdd, vss
+//   dff:              d, clk, q, vdd, vss
+//   dff_async_clear:  d, clk, q, clr, vdd, vss
+//
+// All keywords are matched at higher priority than CNAME so they don't
+// collide with the generic identifier pattern. DFF_CLEAR_KW is matched
+// at priority 3 (higher than DFF_KW.2) so `dff_async_clear` lexes as
+// one token rather than `dff` followed by `_async_clear`.
+INV_KW.2:        "inv"
+NAND2_KW.2:      "nand2"
+DFF_KW.2:        "dff"
+DFF_CLEAR_KW.3:  "dff_async_clear"
+inv_decl:         INV_KW CNAME "{" device_body_field+ "}"
+nand2_decl:       NAND2_KW CNAME "{" device_body_field+ "}"
+dff_decl:         DFF_KW CNAME "{" device_body_field+ "}"
+dff_clear_decl:   DFF_CLEAR_KW CNAME "{" device_body_field+ "}"
+
+// v0.0.31 (G3 closeout): LEAN role-typed device declarations.
+//
+// Surface form (excerpt from a 5T diff-pair amp):
+//
+//     pmos_pair diff_pair {
+//       gm_id = 15;            // applies to every device in the role
+//       W = 20u; L = 0.5u;
+//       gates = (inn, inp);    // optional explicit pin override
+//       drains = (d1, d2);     // optional explicit drain nets
+//       tail = tail;           // optional explicit tail net
+//     }
+//     nmos_mirror first_load {
+//       W = 4u; L = 1u;
+//       in = d1;               // diode-leg drain/gate net
+//       out = d2;              // mirror-leg drain net
+//     }
+//     pmos_cs second_stage {
+//       gm_id = 12;
+//       W = 40u; L = 0.5u;
+//       gate = d2;
+//       drain = out;
+//     }
+//
+// Each role expands to N concrete `device <name>_M1 : <kind> { ... }`
+// entries at parse time using a deterministic naming convention:
+//   * pmos_pair / nmos_pair → 2 devices, sources tied at `<name>_tail`,
+//     drains at `<name>_d1` / `<name>_d2`
+//   * pmos_mirror / nmos_mirror → 2 devices, diode-leg drain/gate at
+//     `<name>_in`, mirror-leg drain at `<name>_out`
+//   * pmos_cs / nmos_cs → 1 device, gate `<name>_gate`,
+//     drain `<name>_drain`
+// Any auto-named pin can be overridden inside the role body.
+//
+// Role keywords are matched as high-priority terminals so they don't
+// collide with the generic CNAME pattern. The `BIAS_MIRROR_KIND`
+// terminal (used by `bias_mirror` inside `bias_tree`) is reused here
+// for `pmos_mirror` / `nmos_mirror` — the surrounding rule context
+// (`role_decl` expects `{` after CNAME; `bias_mirror` expects `of`)
+// disambiguates without an ambiguity warning.
+ROLE_PAIR_KW.3: "pmos_pair" | "nmos_pair"
+ROLE_CS_KW.3:   "pmos_cs"   | "nmos_cs"
+role_decl: role_kw CNAME "{" role_body_field+ "}"
+?role_kw: ROLE_PAIR_KW | BIAS_MIRROR_KIND | ROLE_CS_KW
+?role_body_field: role_size_field | role_pin_field | role_pair_pin_field
+role_size_field: CNAME "=" number ";"
+role_pin_field:  CNAME "=" CNAME ";"
+role_pair_pin_field: CNAME "=" "(" CNAME "," CNAME ")" ";"
+
+// v0.0.62 (functional roles): behavioral-noun declarations let the LLM
+// write at the analog-function level rather than the transistor-bundle
+// level. Six keywords: `input_transconductor`, `output_buffer`,
+// `feedforward_path`, `dominant_pole_cap`, `compensation_zero`,
+// `tail_current_source`. Surface form:
+//
+//     input_transconductor Mdp {
+//         gm_target = 2mA/V,
+//         intent = 'differential_drive',
+//         polarity = pmos
+//     }
+//
+// Attributes are comma-separated `key = value` pairs (no trailing
+// semicolons — the surface form deliberately diverges from the v0.0.31
+// `role_decl` shape so the two are visually distinct). Values are one
+// of: number (with optional unit suffix), quoted string, bare
+// identifier, or parenthesized identifier list (`from = (a, b)`).
+// Trailing comma is permitted but empty body `{ }` is rejected at the
+// transformer level so every functional role carries at least one
+// attribute.
+//
+// Keyword terminals are matched at priority 3 (same level as
+// ROLE_PAIR_KW / ROLE_CS_KW) so they take precedence over the generic
+// CNAME pattern without ambiguity. The transformer additionally
+// validates the keyword against `_VALID_FUNCTIONAL_ROLE_KINDS` as a
+// defensive guard against future grammar tweaks.
+// v0.0.90 (Round 66): extended from 6 to 12 functional-role keywords.
+// First batch (v0.0.86) covered the canonical Miller two-stage amp
+// roles. Second batch adds six new behavioral nouns for broader analog
+// topologies: cascode_helper (ro boost), pole_tracking_cap (PVT-stable
+// frequency response), dual_feedforward_pair (DFCFC-style symmetric
+// dual feedforward), loop_filter_pole (PLL loop filter dominant pole),
+// current_mirror (bias distribution intent), diode_load (low-impedance
+// high-bandwidth stage load). All twelve share the same surface
+// shape (FUNCTIONAL_ROLE_KW ident { attr_list }) — only the keyword
+// set expands.
+//
+// v0.0.92 (Round 68 Agent G): extended from 12 to 18 functional-role
+// keywords. Third batch adds six new behavioral nouns covering CMFB,
+// switched-cap sampling, gain-boosting cascodes, class-AB output, and
+// tracking-bias generators:
+//   * common_mode_feedback   — CMFB amplifier wrapping a fully-differential
+//                              output stage.
+//   * sample_hold_switch     — switched-capacitor sample/hold transistor.
+//   * regulated_cascode      — gain-boosted (active-gain) cascode whose
+//                              gate is driven by an auxiliary amp.
+//   * gain_boost_amp         — auxiliary amplifier feeding a regulated_cascode
+//                              or a folded cascode gate (distinct from
+//                              regulated_cascode by application context).
+//   * output_class_AB        — push-pull output stage with class-AB biasing
+//                              for low-quiescent / high-swing operation.
+//   * dynamic_bias           — bias-current generator that tracks process /
+//                              temperature (distinct from tail_current_source
+//                              by tracking property, not by topology).
+// All eighteen share the same surface shape; only the keyword set expands.
+//
+// v0.0.94 (Round 70 Agent C): extended from 18 to 23 functional-role
+// keywords. Fourth batch adds five new behavioral nouns covering
+// non-amp categories (LDO / Bandgap / PLL):
+//   * bandgap_core            — PTAT + CTAT combiner producing a
+//                               temperature-stable reference voltage
+//                               (~1.2V typ).
+//   * dropout_pass_device     — LDO output pass transistor whose
+//                               dropout voltage is the headroom target.
+//   * ldo_feedback_divider    — LDO resistive feedback divider whose
+//                               divide_ratio_target sets the regulation
+//                               loop's reference division.
+//   * ptat_branch             — PTAT current source for bandgap, whose
+//                               temp_coefficient_target sets the
+//                               per-Kelvin current slope.
+//   * pll_loop_filter         — PLL loop filter whose loop_bandwidth_target
+//                               sets the closed-loop crossover (distinct
+//                               from loop_filter_pole, which targets the
+//                               filter's own dominant pole).
+// All twenty-three share the same surface shape; only the keyword set
+// expands. v0.0.94 ships parser + Rust + placeholder invariant check
+// entries; real measurement comparison for the fourth batch is
+// deferred to Round 71+ (Bandgap / LDO / PLL testbench plumbing).
+//
+// `functional_group` is the generic source-level carrier for device
+// membership, labels, and design/layout intent. Specific circuit role
+// names remain attributes, not grammar keywords.
+FUNCTIONAL_ROLE_KW.3: "functional_group"
+                    | "input_transconductor"
+                    | "output_buffer"
+                    | "feedforward_path"
+                    | "dominant_pole_cap"
+                    | "compensation_zero"
+                    | "tail_current_source"
+                    | "cascode_helper"
+                    | "pole_tracking_cap"
+                    | "dual_feedforward_pair"
+                    | "loop_filter_pole"
+                    | "current_mirror"
+                    | "diode_load"
+                    | "common_mode_feedback"
+                    | "sample_hold_switch"
+                    | "regulated_cascode"
+                    | "gain_boost_amp"
+                    | "output_class_AB"
+                    | "dynamic_bias"
+                    | "bandgap_core"
+                    | "dropout_pass_device"
+                    | "ldo_feedback_divider"
+                    | "ptat_branch"
+                    | "pll_loop_filter"
+functional_role_decl: FUNCTIONAL_ROLE_KW CNAME "{" functional_attr_list? "}"
+functional_attr_list: functional_attr_field ("," functional_attr_field)* ","?
+functional_attr_field: CNAME "=" functional_attr_value
+?functional_attr_value: number | string | CNAME | functional_attr_id_list
+functional_attr_id_list: "(" CNAME ("," CNAME)* ")"
+
+// v0.0.23 (G9): object literal — flat map of string-keyed values.
+// No nesting in this version; values are scalars (string / number /
+// CNAME bareword). Trailing comma is permitted; empty `{ }` is too.
+object_literal: "{" (object_field ("," object_field)* ","?)? "}"
+object_field: CNAME ":" object_value
+?object_value: string | number | CNAME
+
+// `sizing { key = value; key = value; }` inside a cell_def — these are
+// passed as kwargs to the stage template builder. Same form as
+// sizing_override but a distinct grammar rule for clarity.
+cell_sizing_block: "sizing" "{" override_field+ "}"
+
+spec_block:            "spec" "{" spec_field+ "}"
+sizing_override_block: "sizing_override" "{" override_field+ "}"
+
+// v0.0.30 (G11 closeout): spec_field accepts two optional assertion-
+// level modifier clauses after the value:
+//   * `across_corners('tt', 'ss', 'ff')` — the assertion must hold at
+//     each named corner. Combines with verify-job `corners { ... }`
+//     via UNION (run both sets; field-level list scopes the check).
+//   * `with_margin(20%)`     — tighten the spec by the given percentage
+//     before comparison. `>=` tightens upward, `<=` tightens downward,
+//     `=` widens the equality band (relative tolerance shrinks).
+// Either clause may appear, in either order, and both may be omitted
+// for backward compatibility with every pre-v0.0.30 .clay file.
+//
+// v0.0.37 (user functions): the spec RHS stays a bare `number` rather
+// than the new `expr` rule because compound-unit forms like `1V/us`
+// followed by a stray `/K` would otherwise parse as a division
+// expression (`(1V/us) / K`) instead of being rejected as malformed
+// units. Sizing values do not have this conflict so `override_field`
+// widens; spec values remain literal-only for v0.0.37. A user who
+// wants computed spec thresholds can either pre-compute the constant
+// or wait for a later version that disambiguates compound units
+// upstream of the expression grammar.
+spec_field:     CNAME ":" type_id op number assertion_modifier* ";"
+?assertion_modifier: across_corners_clause | with_margin_clause
+across_corners_clause: "across_corners" "(" corner_arg ("," corner_arg)* ")"
+corner_arg: string
+// `with_margin(N%)` — N is a SIGNED_NUMBER and the `%` is literal.
+// Negative margins are rejected at the transformer level so the
+// grammar stays permissive (lets us issue a precise error message
+// instead of a generic "no match" parser error).
+with_margin_clause: "with_margin" "(" SIGNED_NUMBER "%" ")"
+// v0.0.37 (user functions): override_field RHS is now an `expr` so
+// `Cc = compute_Cc(GBW, gm) * 1.2;` is legal in addition to the
+// historical `Cc = 1.5pF;`. Backward-compatible: a single-token
+// `number` still matches via `expr -> expr_add -> ... -> expr_atom -> number`.
+override_field: CNAME "=" expr ";"
+
+op: GE | LE | EQ | GT | LT
+GE: ">="
+LE: "<="
+EQ: "="
+GT: ">"
+LT: "<"
+
+type_id: CNAME
+
+// dotted_name allows package paths like a.b.c
+dotted_name: CNAME ("." CNAME)*
+
+// qualified_name allows cell references like a.b.c::CellName
+qualified_name: CNAME ("." CNAME)* "::" CNAME
+
+// v0.0.37 (user functions): file-scope function definition. Grammar
+// reserves a single keyword `fn` (matched at higher priority than CNAME
+// so it doesn't collide with the generic identifier pattern). Each
+// `fn NAME(arg, ...) { stmt* return EXPR; }` declares a pure function
+// whose body is a statement list ending in a single return.
+// Functions are evaluated at parse time when a sizing / spec value
+// references them; the result is a Python float. Forward references
+// are NOT supported in this MVP — a fn must be defined BEFORE it is
+// called from another expression. The transformer enforces this in
+// `start()` by walking source order.
+//
+// v0.0.37 (Round 18 extension): function bodies now support local
+// `let NAME = EXPR;` bindings (immutable, single-assignment) and
+// `if (EXPR) { ... } else { ... }` branching. Both branches of an
+// if/else may themselves be multi-statement blocks containing further
+// `let` / nested `if/else`, but every execution path must terminate in
+// a `return EXPR;`. The body grammar is:
+//
+//   fn_body  : fn_body_stmt*
+//   fn_body_stmt: let_stmt | if_stmt | return_stmt
+//
+// where `if_stmt` body and else-body are themselves a list of
+// `fn_body_stmt`. A function with a single `return EXPR;` parses
+// unchanged (backward compatible with v0.0.37 Round 17 MVP).
+FN_KW.2: "fn"
+RETURN_KW.2: "return"
+LET_KW.2: "let"
+IF_KW.2: "if"
+ELSE_KW.2: "else"
+fn_def: FN_KW CNAME "(" fn_arg_list? ")" "{" fn_body "}"
+fn_body: fn_body_stmt+
+?fn_body_stmt: let_stmt | if_stmt | return_stmt
+let_stmt: LET_KW CNAME "=" expr ";"
+return_stmt: RETURN_KW expr ";"
+// `if_stmt` body and else-body are themselves a fn_body_stmt list so
+// we can nest if/else and chain elif via `else if`. Parens around the
+// condition are required to match the surface form documented in the
+// MVP plan. The else clause is optional — a bare `if (cond) { ... }`
+// parses, but the function must still terminate in a `return EXPR;`
+// at the body level (enforced in the transformer, not the grammar,
+// because lark's CFG can't easily express "every path returns").
+if_stmt: IF_KW "(" expr ")" "{" fn_body "}" else_clause?
+?else_clause: ELSE_KW "{" fn_body "}" -> else_block
+            | ELSE_KW if_stmt          -> else_if
+fn_arg_list: CNAME ("," CNAME)*
+
+// v0.0.37 (user functions): arithmetic expression grammar.
+//
+// Precedence (lowest to highest), v0.0.37 Round 18 extension adds the
+// comparison and logical layers above arithmetic:
+//   expr      → expr_or  (top-level alias)
+//   expr_or   → expr_and ("||" expr_and)*
+//   expr_and  → expr_cmp ("&&" expr_cmp)*
+//   expr_cmp  → expr_add  (CMP_OP expr_add)?     // non-chained
+//   expr_add  → expr_mul (("+" | "-") expr_mul)*
+//   expr_mul  → expr_unary (("*" | "/") expr_unary)*
+//   expr_unary→ ("-" | "+" | "!") expr_unary  |  expr_pow
+//   expr_pow  → expr_atom ("**" expr_pow)?     // right-assoc
+//   expr_atom → number | fn_call | CNAME | "(" expr ")"
+//
+// Backward compatibility: any pre-v0.0.37 .clay value position that
+// accepted a bare `number` still parses unchanged — the chain collapses
+// through the `?` rules for a single numeric literal because no
+// operator follows.
+//
+// Comparisons are non-chained: `1 < x < 2` does NOT parse as a chain.
+// Use `1 < x && x < 2` instead. This matches C / Python's `<` semantics
+// (Python's chaining is a deliberate exception we do not implement).
+?expr: expr_or
+?expr_or:  expr_and
+        |  expr_or OR_OP expr_and -> expr_or_bin
+?expr_and: expr_cmp
+        |  expr_and AND_OP expr_cmp -> expr_and_bin
+?expr_cmp: expr_add
+        |  expr_add CMP_OP expr_add -> expr_cmp_bin
+?expr_add: expr_mul
+         | expr_add ADD_OP expr_mul -> expr_add_bin
+?expr_mul: expr_unary
+         | expr_mul MUL_OP expr_unary -> expr_mul_bin
+?expr_unary: expr_pow
+           | ADD_OP expr_unary -> expr_unary_op
+           | NOT_OP expr_unary -> expr_not_op
+?expr_pow: expr_atom
+         | expr_atom POW_OP expr_pow -> expr_pow_bin
+?expr_atom: number
+          | fn_call
+          | CNAME -> expr_ref
+          | "(" expr ")" -> expr_paren
+fn_call: CNAME "(" fn_call_args? ")"
+fn_call_args: expr ("," expr)*
+
+ADD_OP: "+" | "-"
+MUL_OP: "*" | "/"
+POW_OP: "**"
+// Comparison operators — `==` and `!=` are matched at higher priority
+// than the `=` / `<` / `>` operators used in `spec_field`'s op rule so
+// the lexer prefers the two-char form when it appears.
+CMP_OP.3: "<=" | ">=" | "==" | "!=" | "<" | ">"
+// Logical operators. `&&` and `||` are matched at high priority so they
+// take precedence over a hypothetical single-`&` / `|` token (we have
+// none today but it keeps the lexer unambiguous).
+AND_OP.3: "&&"
+OR_OP.3:  "||"
+// Logical NOT — single `!`. Matched at higher priority than CMP_OP's
+// `!=` because `!=` is two chars; lark's longest-match handles this.
+NOT_OP.3: "!"
+
+number: SIGNED_NUMBER UNIT?
+
+// v0.0.23 (G12): UNIT now accepts a single denominator suffix so
+// compound units like `V/us` (slew rate) or `kHz/V` (VCO gain) parse.
+// Form: <letters> ("/" <letters>)? — exactly one slash allowed, no
+// chaining (no `V/us/K`). The parser splits on `/` and computes the
+// SI value as `numerator_multiplier / denominator_multiplier`.
+// `sqrt(Hz)`-style noise units remain unsupported in this version.
+UNIT.2: /[a-zA-Z]+(\/[a-zA-Z]+)?/
+
+// v0.1.16 (R92 B BL-126): layout annotation surface syntax. Six
+// annotation kinds — `@matching`, `@guard_ring`, `@well_isolated`,
+// `@symmetric`, `@interdigitated`, `@adjacent` — are bundled together
+// in an `annotate <CellName> { ... }` top-level block, keyed by the
+// target device-id / cell sentinel / node-group-id. The block is a
+// sibling of `cell_def` / `verify_block`, NOT nested inside cell
+// bodies — this keeps the 21 split parser_modules / 4467-LOC transformer
+// methods byte-exact preserved (per CROSS_PROMPT_SCOPE.html §4 lock on
+// the shared grammar.lark + grammar.pest).
+//
+// Surface form:
+//
+//     annotate diffpair_amp {
+//       M1: @matching(M2);
+//       M2: @matching(M1);
+//       M1: @guard_ring(nwell);
+//       @cell: @symmetric(vertical);
+//       diff_pair: @adjacent(load_pair);
+//     }
+//
+// Targets:
+//   * bare CNAME           → device-level (matches a `device M : ... { }`
+//                            entry or a role expansion handle by name)
+//   * `@cell`              → cell-level (the annotation applies to the
+//                            whole cell)
+//   * bare CNAME naming a  → node-group-level (the annotation applies
+//     `role_decl` handle     to the group of devices the role expanded to)
+//
+// Each `annotation_block` calls into `clay.layout.LayoutAnnotation`'s
+// factories — Matching / GuardRing / WellIsolated / Symmetric /
+// Interdigitated / Adjacent — via the parser's `_AnnotationMixin` in
+// `clay/parser_modules/_grammar.py`. The resulting per-cell map of
+// `device_id -> list[LayoutAnnotation]` is stashed on each `CellDef`
+// via `__dict__['_layout_annotations']` so downstream consumers can
+// build an `AnnotatedCell` without growing the CellDef dataclass shape.
+//
+// `ANNOTATE_KW` / `CELL_TARGET_KW` are matched at priority 3 (higher
+// than CNAME) so the keywords lex as their own terminals.
+ANNOTATE_KW.3: "annotate"
+CELL_TARGET_KW.3: "@cell"
+
+annotate_decl: ANNOTATE_KW CNAME "{" annotation_entry+ "}"
+annotation_entry: annotation_target ":" annotation_block ";"
+?annotation_target: CELL_TARGET_KW -> annotation_target_cell
+                  | CNAME           -> annotation_target_id
+
+annotation_block: "@" annotation_kind ("(" annotation_args ")")?
+
+annotation_kind: ANNOT_MATCHING_KW
+               | ANNOT_GUARD_RING_KW
+               | ANNOT_WELL_ISOLATED_KW
+               | ANNOT_SYMMETRIC_KW
+               | ANNOT_INTERDIGITATED_KW
+               | ANNOT_ADJACENT_KW
+               | ANNOT_BULK_KW
+               | ANNOT_TAP_KW
+               | ANNOT_ORIENT_KW
+               | ANNOT_DENSE_CONTACTS_KW
+               | ANNOT_NATIVE_BODY_TAP_KW
+               | ANNOT_FOLD_KW
+               | ANNOT_RESISTOR_SEGMENTS_KW
+               | ANNOT_EQUAL_SIZE_KW
+               | ANNOT_FIX_KW
+
+ANNOT_MATCHING_KW.3:       "matching"
+ANNOT_GUARD_RING_KW.3:     "guard_ring"
+ANNOT_WELL_ISOLATED_KW.3:  "well_isolated"
+ANNOT_SYMMETRIC_KW.3:      "symmetric"
+ANNOT_INTERDIGITATED_KW.3: "interdigitated"
+ANNOT_ADJACENT_KW.3:       "adjacent"
+ANNOT_BULK_KW.3:           "bulk"
+ANNOT_TAP_KW.3:            "tap"
+ANNOT_ORIENT_KW.3:         "orient"
+ANNOT_DENSE_CONTACTS_KW.3: "dense_contacts"
+ANNOT_NATIVE_BODY_TAP_KW.3: "native_body_tap"
+ANNOT_FOLD_KW.3:           "fold"
+ANNOT_RESISTOR_SEGMENTS_KW.3: "resistor_segments"
+ANNOT_EQUAL_SIZE_KW.3:     "equal_size"
+ANNOT_FIX_KW.3:            "fix"
+
+annotation_args: annotation_arg ("," annotation_arg)*
+// A device-level annotation arg is either positional (a kind literal, a
+// number, or a bare device/net identifier) or a `key=value` keyword arg.
+// The keyword form carries `@tap(net, where=<loc>)` — the `where=` slot
+// names a substrate/tap LOCATION. Listing the `CNAME "=" ...` alternative
+// BEFORE the bare-CNAME alternative keeps the `=` form unambiguous for the
+// earley parser (a bare ident has no trailing `=`).
+?annotation_arg: KIND_LITERAL                  -> annotation_arg_literal
+              | SIGNED_NUMBER                  -> annotation_arg_number
+              | CNAME "=" annotation_kwarg_val -> annotation_arg_kwarg
+              | CNAME                          -> annotation_arg_ident
+?annotation_kwarg_val: KIND_LITERAL -> annotation_arg_literal
+                     | SIGNED_NUMBER -> annotation_arg_number
+                     | CNAME         -> annotation_arg_ident
+
+// KIND_LITERAL is the closed enum of literal strings carried by the
+// LayoutAnnotation subclasses' Enum-typed attributes. Matched at
+// priority 4 (higher than the annotation-kind keywords, which are at
+// priority 3, and higher than CNAME) so e.g. `nwell` lexes as a literal
+// instead of an arbitrary identifier when it appears in annotation_args.
+KIND_LITERAL.4: "random_vt" | "systematic" | "both"
+              | "nwell" | "pwell"
+              | "vertical" | "horizontal"
+              | "abab" | "abba"
+              | "R0" | "R90" | "R180" | "R270"
+              | "MR0" | "MR90" | "MR180" | "MR270"
+
+// Net-level layout-intent declarations. This is intentionally separate
+// from `annotate { target: @...; }`, which carries device/placement
+// annotations. A layout_intent block targets nets and lowers to
+// `clay.layout.intent.LayoutIntent`.
+layout_intent_decl: "layout_intent" CNAME "{" layout_intent_entry+ "}"
+?layout_intent_entry: layout_match_intent
+                    | layout_symmetric_intent
+                    | layout_shield_intent
+                    | layout_budget_intent
+                    | layout_mirror_intent
+                    | layout_objective_intent
+                    | layout_area_intent
+                    | layout_place_group_intent
+                    | layout_route_group_intent
+                    | layout_wire_width_intent
+                    | layout_match_length_intent
+                    | layout_net_spacing_intent
+                    | layout_order_intent
+                    | layout_align_intent
+                    | layout_center_group_intent
+                    | layout_group_align_intent
+                    | layout_group_separate_intent
+                    | layout_channel_align_intent
+                    | layout_terminal_access_intent
+                    | layout_abut_intent
+                    | layout_guard_ring_intent
+                    | layout_array_intent
+                    | layout_common_centroid_intent
+                    | layout_dummy_flank_intent
+                    | layout_well_island_intent
+                    | layout_well_island_share_intent
+                    | layout_band_intent
+                    | layout_rail_affinity_intent
+                    | layout_trunk_intent
+                    | layout_power_plane_intent
+                    | layout_split_intent
+                    | layout_passive_bank_partition_intent
+                    | layout_row_bounded_cavity_intent
+                    | layout_anchor_intent
+                    | layout_channel_intent
+                    | layout_channel_route_intent
+                    | layout_channel_branch_intent
+                    | layout_imported_layout_intent
+                    | layout_route_tail_intent
+                    | layout_density_intent
+                    | layout_od_fill_intent
+                    | layout_power_budget_intent
+                    | layout_sensitive_net_budget_intent
+                    | layout_kelvin_intent
+
+layout_match_intent:     "@" "match" "(" CNAME "," CNAME ("," "scope" "=" CNAME)? ")" ";"
+layout_symmetric_intent: "@" "symmetric" "(" CNAME "," CNAME ")" ";"
+layout_shield_intent:    "@" "shield" "(" CNAME "->" CNAME ("," CNAME)? ")" ";"
+// Optional metric drivers belong to this budget. They name actual topology
+// nets; omitted drivers retain the historical four-argument semantics.
+layout_budget_intent:    "@" "budget" "(" CNAME "," CNAME "," CNAME "," SIGNED_NUMBER ("," layout_budget_arg)* ","? ")" ";"
+?layout_budget_arg: "aggressors" "=" layout_place_id_list -> layout_budget_aggressors
+                  | "clock_net" "=" CNAME               -> layout_budget_clock_net
+layout_mirror_intent:    "@" "mirror" "(" CNAME "," CNAME ")" ";"
+layout_objective_intent: "@" "objective" "(" CNAME "," CNAME ")" ";"
+layout_area_intent:      "@" "area" "(" CNAME "," SIGNED_NUMBER ")" ";"
+layout_place_group_intent: "@" "place_group" "(" CNAME "," layout_place_arg ("," layout_place_arg)* ","? ")" ";"
+// Bind one canonical placement group, or an explicit union of two or more
+// placement groups, to hierarchical routing. ``external`` is topology-derived:
+// every member terminal whose net leaves the union (or is a top-cell port)
+// becomes a complete group-port obligation. No net list, coordinate, track or
+// reference measurement appears in the declaration.
+layout_route_group_intent: "@" "route_group" "(" CNAME "," layout_place_arg ("," layout_place_arg)* ","? ")" ";"
+// Per-net declared wire WIDTH: the router routes <net> (trunk / risers / rail)
+// at >= this width instead of the PDK minimum (parasitic / IR-drop / EM intent).
+// Width is a length with an optional unit (`2u`, `1500nm`, `0.000002`); a bare
+// number is metres (SI), per the `number` UNIT rule. Lowered to a `wire_widths`
+// entry on LayoutIntent (nm) and verified by a `wire_width` geometric obligation.
+layout_wire_width_intent: "@" "wire_width" "(" CNAME "," number ")" ";"
+// Matched-net WIRE-LENGTH balance: the two nets' ROUTED metal run lengths must
+// be balanced (differential / matched signals share equal wire parasitic). It
+// lowers to a `match_length_pairs` entry on LayoutIntent, drives a hard router
+// Length constraint, and is independently verified by a `match_length`
+// geometric obligation on the final routed layout.
+layout_match_length_intent: "@" "match_length" "(" CNAME "," CNAME ")" ";"
+// Explicit same-layer metal clearance. Keep decimal and unit tokens for exact
+// upward quantization to nm; non-length units are rejected by the transformer.
+layout_net_spacing_intent: "@" "net_spacing" "(" CNAME "," CNAME "," SIGNED_NUMBER UNIT ")" ";"
+// Cell-level RELATIVE ORDER between two placed devices: `@order(A, B, left_of)`
+// pins A left_of / above B in the realised placement. ``rel`` is one of
+// {left_of, above} (a closed enum lexed as ORDER_REL). Lowered to a
+// LayoutIntent.order_constraints (a, b, rel) entry, consumed by the seqpair
+// placer as a directed constraint-graph edge (correct-by-construction) and
+// verified by a `check_order` geometric obligation. Empty -> placer unchanged.
+layout_order_intent: "@" "order" "(" CNAME "," CNAME "," ORDER_REL ")" ";"
+// Align matching bbox edges; optional offset_nm gives second minus first in nm.
+layout_align_intent: "@" "align" "(" CNAME "," CNAME "," "edge" "=" CNAME ("," "offset_nm" "=" SIGNED_NUMBER)? ")" ";"
+layout_center_group_intent: "@" "center_align" "(" CNAME "," "groups" "=" layout_place_id_list ")" ";"
+layout_group_align_intent: "@" "group_align" "(" CNAME "," CNAME "," "edge" "=" CNAME ")" ";"
+layout_group_separate_intent: "@" "group_separate" "(" CNAME "," CNAME "," "axis" "=" CNAME ("," "gap_nm" "=" SIGNED_NUMBER)? ")" ";"
+layout_channel_align_intent: "@" "channel_align" "(" CNAME "," CNAME ")" ";"
+// One device-local terminal must be exposed on a named envelope side.  The side
+// is a closed discrete relation; no pitch, offset, or reference coordinate exists.
+layout_terminal_access_intent: "@" "terminal_access" "(" CNAME "," "terminal" "=" CNAME "," "side" "=" CNAME ")" ";"
+// Cell-level ADJACENCY: `@abut(A, B)` packs A and B edge-adjacent (the facing
+// inter-device gap is the DRC-minimum, not the default routing channel). Lowered
+// to LayoutIntent.abut_pairs (a, b); the seqpair placer tightens the A-B spacing
+// + prefers them adjacent in the packing order, verified by a `check_abut`
+// obligation. Empty -> placer unchanged (byte-parity).
+layout_abut_intent:  "@" "abut" "(" CNAME "," CNAME ")" ";"
+// Net/cluster-level GUARD RING:
+//   `@guard_ring(group=(M1, M2, M3), well=n, tie=vdd, hug=tight, role=tap)`
+// wraps the named device cluster in ONE PDK-rule-driven tap ring, tied to `tie`.
+// `well` is the declared polarity {p, n} the materialized ring must draw. Every
+// argument after `well` is a generic `key=value` kwarg (parsed uniformly, like the
+// craft-intent rules), so the surface stays extensible without another grammar
+// bump: `tie` (optional supply/body net the ring is strapped to), `hug=tight`
+// (hug the cluster at PDK-min tap spacing, vs `enclose=<spacing>`), and
+// `role=tap|isolation` (a MOS tap ring vs a passive isolation ring). The checker
+// verifies the drawn polarity + the union-find tap net against `well`/`tie`.
+// Lowered to LayoutIntent.guard_rings (members, well, tie_net), consumed by
+// route_cell's group_guard_rings materialization + the native.guard_ring_
+// materialized checker. Empty -> route_cell unchanged (byte-parity).
+layout_guard_ring_intent: "@" "guard_ring" "(" "group" "=" layout_place_id_list "," "well" "=" CNAME ("," layout_place_arg)* ","? ")" ";"
+// ── First-class analog-layout CRAFT intent (Stage-1 vocabulary) ─────────────
+// Coordinate-free organizational intent (arraying / centroid / dummies / well
+// island / banding / trunk routing / matched split). Each statement mirrors the
+// `@name(head, kw=val, ...)` shape of `@order` / `@place_group` and reuses the
+// existing `layout_place_arg` keyword-list rule. `@band` carries only keyword
+// args (no positional head). PARSE + LOWER ONLY at this stage: they lower to
+// empty-by-default list fields on `LayoutIntent` (`arrays`, `common_centroids`,
+// `dummy_flanks`, `well_islands`, `bands`, `rail_affinities`, `trunks`,
+// `power_planes`, `splits`); a `.clay` that declares NONE is byte-identical.
+// No materializer / placer / router behaviour is attached to these yet.
+layout_array_intent:           "@" "array" "(" CNAME ("," layout_place_arg)* ","? ")" ";"
+layout_common_centroid_intent: "@" "common_centroid" "(" CNAME ("," layout_place_arg)* ","? ")" ";"
+layout_dummy_flank_intent:     "@" "dummy_flank" "(" CNAME ("," layout_place_arg)* ","? ")" ";"
+layout_well_island_intent:     "@" "well_island" "(" CNAME ("," layout_place_arg)* ","? ")" ";"
+layout_well_island_share_intent: "@" "well_island_share" "(" CNAME "," "body" "=" CNAME ","? ")" ";"
+layout_band_intent:            "@" "band" "(" layout_place_arg ("," layout_place_arg)* ","? ")" ";"
+layout_rail_affinity_intent:   "@" "rail_affinity" "(" CNAME ("," layout_place_arg)* ","? ")" ";"
+layout_trunk_intent:           "@" "trunk" "(" CNAME ("," layout_place_arg)* ","? ")" ";"
+layout_power_plane_intent:     "@" "power_plane" "(" CNAME ("," layout_place_arg)* ","? ")" ";"
+layout_split_intent:           "@" "split" "(" CNAME ("," layout_place_arg)* ","? ")" ";"
+// Partition one declared passive-bank functional group into two or more named,
+// disjoint topology-defined sub-banks.  The closed all-keyword grammar prevents
+// unknown/missing fields from being silently ignored; member order is semantic-
+// free and canonicalized by the transformer.
+layout_passive_bank_partition_intent: "@" "passive_bank_partition" "(" "parent" "=" CNAME "," "bank" "=" CNAME "," "members" "=" layout_place_id_list ","? ")" ";"
+// Place one or more guest owners inside a host mosaic's generated upper cavity.
+// Both boundaries are intrinsic to the declaration type: the lower boundary is
+// the top envelope of the host's full-span atom rows and the upper boundary is
+// the host envelope top.  The closed surface therefore admits neither a rail
+// identity nor a reference coordinate/distance.
+layout_row_bounded_cavity_intent: "@" "row_bounded_cavity" "(" "host" "=" CNAME "," "guests" "=" layout_place_id_list ","? ")" ";"
+// ── Routing-owed PLACEMENT intent (P4): edge access + reserved routing channel ──
+// `@anchor(<net|group>, edge=left|right|top|bottom)` -- pin the cluster carrying a
+//   net (or a named group) to a cell EDGE so that net's port exits/enters there
+//   (the symmetric twin of the diff-pair LEFT column: e.g. `@anchor(vout, edge=right)`
+//   drives the output stage to the right so VOUT exits right). Closes the named
+//   `@anchor`/`@region`/`@column` language gap. Lowered to `LayoutIntent.anchors`,
+//   consumed by `place_blocks_2d` as a SOFT edge pull (below envelope minimization).
+// `@channel(orient=vertical|horizontal, width=<um>)` -- reserve a routing CHANNEL of
+//   the given width (a corridor free of device geometry) for cross-band straps (the
+//   reference's M3 vertical straps). Lowered to `LayoutIntent.channels`, consumed by
+//   `place_blocks_2d` as the column->lower-region separation. Head-less (all-keyword,
+//   like `@band`). Both are byte-identical when absent (default-empty list fields).
+layout_anchor_intent:          "@" "anchor" "(" CNAME ("," layout_place_arg)* ","? ")" ";"
+layout_channel_intent:         "@" "channel" "(" layout_place_arg ("," layout_place_arg)* ","? ")" ";"
+// Hard ordered channel between two declared exact placement rows. Like other
+// craft dimensions, width and pitch are micrometres. Branch overrides name nets;
+// they are independent of the order of entries in the channel.
+layout_channel_route_intent: "@" "channel_route" "(" layout_place_arg ("," layout_place_arg)* ","? ")" ";"
+layout_channel_branch_intent: "@" "channel_branch" "(" CNAME "," "layer" "=" CNAME ")" ";"
+// Authenticated imported-layout routing is a separate materialization path.
+// Resources are discovered from the bound input; lengths here are exact nm.
+layout_imported_layout_intent: "@" "imported_layout" "(" "manifest" "=" string "," "sha256" "=" string ")" ";"
+layout_route_tail_intent: "@" "route_tail" "(" CNAME "," "resource" "=" string "," "trim_nm" "=" SIGNED_NUMBER ")" ";"
+// Coordinate-free structural whitespace target.  This constrains the ratio of
+// unoccupied area inside the final structural envelope; it does not encode a
+// reference bbox, coordinate, or circuit-specific placement.
+layout_density_intent:         "@" "density" "(" layout_place_arg ("," layout_place_arg)* ","? ")" ";"
+// Coordinate-free functional active/OD occupancy target.  This never asks the
+// compiler to add electrically unowned dummy diffusion.
+layout_od_fill_intent:         "@" "od_fill" "(" layout_place_arg ("," layout_place_arg)* ","? ")" ";"
+// Absolute electrical limits are checked only against a calibrated PEX receipt
+// bound to the emitted GDS.  These declarations themselves remain coordinate-free.
+layout_power_budget_intent: "@" "power_budget" "(" CNAME "," layout_place_arg ("," layout_place_arg)* ","? ")" ";"
+layout_sensitive_net_budget_intent: "@" "sensitive_net_budget" "(" CNAME "," layout_place_arg ("," layout_place_arg)* ","? ")" ";"
+// Kelvin force/sense pair terminating on one topology-owned sensing element.
+// The declaration carries no reference coordinates: both nets and the target
+// device must bind to the parsed cell topology before routing.
+layout_kelvin_intent: "@" "kelvin" "(" CNAME "," "sense" "=" CNAME "," "target" "=" CNAME ","? ")" ";"
+layout_place_arg: CNAME "=" layout_place_value
+?layout_place_value: CNAME | SIGNED_NUMBER | ROW_RANGE | layout_place_id_list
+layout_place_id_list: "(" CNAME ("," CNAME)* ","? ")"
+
+ROW_RANGE: /[0-9]+\.\.[0-9]+/
+
+// The closed `rel` enum of `@order(A, B, rel)`. Priority 4 (above CNAME) so the
+// two relation keywords lex as their own terminal inside the order intent args.
+ORDER_REL.4: "left_of" | "above"
+
+// Source-level flow + quality blocks. These are TOP-LEVEL declarations
+// named by their cell (mirroring `layout_intent <CNAME> { ... }`). The
+// `flow` block binds the automation profile (pdk / corners / steps /
+// layout generator module); the `quality` block is the acceptance
+// contract (the "type" the design must satisfy). Both lower to a frozen
+// `clay.flow.spec.CircuitSpec` via `compile_flow_spec`. The compiler is
+// the arbiter; the registry is DISCOVERED from these blocks, never
+// hand-written.
+flow_decl: "flow" CNAME "{" flow_entry+ "}"
+?flow_entry: flow_pdk | flow_corners | flow_steps | flow_layout | flow_policy
+flow_pdk:     "pdk" string ";"
+flow_corners: "corners" "(" CNAME ("," CNAME)* ")" ";"
+flow_steps:   "steps" "(" CNAME ("," CNAME)* ")" ";"
+flow_layout:  "layout" "=" dotted_name ";"
+flow_policy:  "policy" "=" CNAME ";"
+
+// Reusable, file-level place/route policy block (v2-lang). A `policy NAME
+// { ... }` block declares the GENERAL place/route strategy + convergence
+// defaults; a cell selects one via `flow { policy = NAME; }`. The block
+// mirrors `flow {}` / `quality {}` (top-level, named) but is NOT per-cell:
+// it is registered in `ClayFile.policies` keyed by name. Only `@converge`
+// (place_iters / route_iters / tol) is actively consumed downstream today;
+// `@place_policy` / `@route_policy` strategy fields are recorded provenance.
+policy_decl: "policy" CNAME "{" policy_entry+ "}"
+?policy_entry: pol_place | pol_route | pol_converge | pol_learn
+pol_place:    "@" "place_policy" "(" policy_kv ("," policy_kv)* ")" ";"
+pol_route:    "@" "route_policy" "(" policy_kv ("," policy_kv)* ")" ";"
+pol_converge: "@" "converge" "(" policy_kv ("," policy_kv)* ")" ";"
+pol_learn:    "@" "learn" "(" CNAME ")" ";"
+policy_kv: CNAME "=" policy_val
+?policy_val: CNAME | SIGNED_NUMBER | pol_id_list
+pol_id_list: "(" CNAME ("," CNAME)* ")"
+
+quality_decl: "quality" CNAME "{" quality_entry+ "}"
+?quality_entry: q_kpi | q_consistency | q_require
+q_kpi:         "@" "kpi" "(" CNAME "," string "," SIGNED_NUMBER ("," "unit" "=" string)? ")" ";"
+q_consistency: "@" "consistency" "(" CNAME "," "rel" "<=" SIGNED_NUMBER ")" ";"
+q_require:     "@" "require" "(" CNAME ")" ";"
+
+%import common.CNAME
+%import common.SIGNED_NUMBER
+%import common.WS
+
+COMMENT: "//" /[^\n]*/
+%ignore COMMENT
+%ignore WS

@@ -1,0 +1,51 @@
+* NGSPICE file created from routed_5t_ota.ext - technology: gf180mcuD
+
+.subckt routed_5t_ota outn outp vbias inp inn gnd vdd tail
+X0 tail inp outp gnd nfet_03v3 ad=1.76p pd=8.88u as=1.04p ps=4.52u w=4u l=0.5u
+X1 tail inn outn gnd nfet_03v3 ad=1.76p pd=8.88u as=1.04p ps=4.52u w=4u l=0.5u
+X2 outn inn tail gnd nfet_03v3 ad=1.04p pd=4.52u as=1.76p ps=8.88u w=4u l=0.5u
+X3 outn outp vdd vdd pfet_03v3 ad=1.04p pd=4.52u as=1.76p ps=8.88u w=4u l=1u
+X4 tail inp outp gnd nfet_03v3 ad=1.04p pd=4.52u as=1.04p ps=4.52u w=4u l=0.5u
+X5 gnd vbias tail gnd nfet_03v3 ad=3.52p pd=16.88u as=2.08p ps=8.52u w=8u l=1u
+X6 outn inn tail gnd nfet_03v3 ad=1.04p pd=4.52u as=1.04p ps=4.52u w=4u l=0.5u
+X7 outp outp vdd vdd pfet_03v3 ad=1.04p pd=4.52u as=1.04p ps=4.52u w=4u l=1u
+X8 vdd outp outn vdd pfet_03v3 ad=1.76p pd=8.88u as=1.04p ps=4.52u w=4u l=1u
+X9 tail vbias gnd gnd nfet_03v3 ad=2.08p pd=8.52u as=3.52p ps=16.88u w=8u l=1u
+X10 gnd vbias tail gnd nfet_03v3 ad=2.08p pd=8.52u as=2.08p ps=8.52u w=8u l=1u
+X11 vdd outp outp vdd pfet_03v3 ad=1.04p pd=4.52u as=1.04p ps=4.52u w=4u l=1u
+X12 vdd outp outn vdd pfet_03v3 ad=1.04p pd=4.52u as=1.04p ps=4.52u w=4u l=1u
+X13 outp inp tail gnd nfet_03v3 ad=1.04p pd=4.52u as=1.04p ps=4.52u w=4u l=0.5u
+X14 outp inp tail gnd nfet_03v3 ad=1.04p pd=4.52u as=1.76p ps=8.88u w=4u l=0.5u
+X15 tail vbias gnd gnd nfet_03v3 ad=2.08p pd=8.52u as=2.08p ps=8.52u w=8u l=1u
+X16 tail inn outn gnd nfet_03v3 ad=1.04p pd=4.52u as=1.04p ps=4.52u w=4u l=0.5u
+X17 vdd outp outp vdd pfet_03v3 ad=1.76p pd=8.88u as=1.04p ps=4.52u w=4u l=1u
+X18 outp outp vdd vdd pfet_03v3 ad=1.04p pd=4.52u as=1.76p ps=8.88u w=4u l=1u
+X19 outn outp vdd vdd pfet_03v3 ad=1.04p pd=4.52u as=1.04p ps=4.52u w=4u l=1u
+C0 vbias inp 0.00523f
+C1 outp vdd 2.93512f
+C2 inn vdd 0
+C3 outn tail 0.28316f
+C4 vdd inp 0
+C5 outp tail 0.29708f
+C6 inn tail 0.29324f
+C7 outn outp 0.65922f
+C8 tail inp 0.29324f
+C9 outn inn 0.2706f
+C10 tail vbias 0.59731f
+C11 outp inn 0.0401f
+C12 outn inp 0.00105f
+C13 outp inp 0.30966f
+C14 tail vdd 0.00204f
+C15 inn inp 0.00125f
+C16 outp vbias 0.00223f
+C17 inn vbias 0.00117f
+C18 outn vdd 0.29479f
+C19 vbias gnd 1.92515f
+C20 tail gnd 2.27257f
+C21 inn gnd 0.76881f
+C22 inp gnd 0.76796f
+C23 outn gnd 0.79387f
+C24 outp gnd 2.48719f
+C25 vdd gnd 14.1731f
+.ends
+
