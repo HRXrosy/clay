@@ -18,5 +18,5 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -e ".[dev]"
-      - name: Run full OSS verification (NDA hygiene + C++20 -Werror + 51 native tests + CLI synth + pytest)
+      - name: Build and verify Clay (C++20 engine + test suite)
         run: python scripts/verify_oss_package.py
