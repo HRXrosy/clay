@@ -95,6 +95,9 @@ if(CLAY_PNR_BUILD_PYTHON)
         target_link_libraries(${target_name} PRIVATE clay_pnr_core)
         target_include_directories(${target_name} PRIVATE "${CLAY_PNR_INCLUDE_DIR}")
         clay_apply_cxx_flags(${target_name})
+        if(NOT MSVC)
+            target_compile_options(${target_name} PRIVATE -Wno-cast-function-type)
+        endif()
         set_target_properties(${target_name} PROPERTIES
             LIBRARY_OUTPUT_DIRECTORY "${CLAY_NATIVE_OUT_DIR}"
             RUNTIME_OUTPUT_DIRECTORY "${CLAY_NATIVE_OUT_DIR}"

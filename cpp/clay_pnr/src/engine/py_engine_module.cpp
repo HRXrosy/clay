@@ -7,8 +7,8 @@
 //   - Per-Net Polygon Merger & Multi-Layer Physical Connectivity Extractor (with MIM carve)
 //   - Rule-Driven MOS PCell & Shared-Diffusion Row Generators
 
-#include "clay_pnr/core/polygon_set.hpp"
 #include "clay_pnr/core/py_raii.hpp"
+#include "clay_pnr/core/polygon_set.hpp"
 #include "clay_pnr/engine/standalone_synth.hpp"
 #include "clay_pnr/gds/gds_stream.hpp"
 #include "clay_pnr/ir/clay_ir.hpp"
@@ -2219,7 +2219,7 @@ PyMethodDef kEngineMethods[] = {
      "Pure C++20 2D difference-constraint compactor with symmetry axis and manufacturing grid."},
     {"solve_envelope_min_cpp", py_solve_envelope_min, METH_VARARGS,
      "Pure C++20 deterministic 2D envelope-min analog placer (zero OR-Tools)."},
-    {"solve_banded_area_cpp", reinterpret_cast<PyCFunction>(py_solve_banded_area), METH_VARARGS | METH_KEYWORDS,
+    {"solve_banded_area_cpp", reinterpret_cast<PyCFunction>(reinterpret_cast<void (*)()>(py_solve_banded_area)), METH_VARARGS | METH_KEYWORDS,
      "Pure C++20 deterministic 2D banded area/height macro placer (zero OR-Tools)."},
     {"parse_clay_ir_cpp", py_parse_clay_ir, METH_VARARGS,
      "Pure C++20 zero-Python .clay DSL lexer & recursive-descent IR parser."},
