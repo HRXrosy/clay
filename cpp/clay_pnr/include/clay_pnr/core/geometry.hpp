@@ -169,9 +169,10 @@ inline bool euclid_sq_lt_128(uint64_t dx, uint64_t dy, uint64_t sp) noexcept {
     if (sum_hi != sp_hi) return sum_hi < sp_hi;
     return sum_lo < sp_lo;
 #elif defined(__SIZEOF_INT128__)
-    const unsigned __int128 lhs = static_cast<unsigned __int128>(dx) * dx +
-                                  static_cast<unsigned __int128>(dy) * dy;
-    const unsigned __int128 rhs = static_cast<unsigned __int128>(sp) * sp;
+    __extension__ using uint128_ext = unsigned __int128;
+    const uint128_ext lhs = static_cast<uint128_ext>(dx) * dx +
+                            static_cast<uint128_ext>(dy) * dy;
+    const uint128_ext rhs = static_cast<uint128_ext>(sp) * sp;
     return lhs < rhs;
 #else
     const U128 lhs = add_u128(mul_u64(dx, dx), mul_u64(dy, dy));
