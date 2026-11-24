@@ -308,7 +308,7 @@ def _compile_tu_posix(
         # CPython's PyMethodDef / tp_dealloc / tp_init C-API requires casting
         # METH_KEYWORDS / METH_FASTCALL / typed-self slots to PyCFunction/destructor/initproc.
         # Keep pure C++20 core TUs at full -Wall -Wextra -Wpedantic -Werror with zero suppressions.
-        cmd.extend(["-isystem", str(py_inc), "-Wno-cast-function-type"])
+        cmd.extend(["-isystem", str(py_inc), "-Wno-cast-function-type", "-Wno-missing-field-initializers"])
     cmd.extend(["-c", str(job.src_path), "-o", str(job.obj_path)])
     res = subprocess.run(cmd, cwd=str(BUILD_ROOT), capture_output=True, text=True)
     combined = "\n".join(s for s in (res.stdout.strip(), res.stderr.strip()) if s)
