@@ -1,6 +1,23 @@
 # Contributing to Clay (Open-Source Edition)
 
-Thank you for contributing to Clay!
+Thank you for contributing to Clay! External contributions are welcome via **Fork & Pull Request** (or direct branch pushes for invited collaborators).
+
+## How to Contribute (Fork & Pull Request)
+
+1. **Fork** [`bzr2915/clay`](https://github.com/bzr2915/clay) to your GitHub account and clone your fork:
+   ```bash
+   git clone https://github.com/<your-username>/clay.git
+   cd clay
+   git checkout -b feat/my-change
+   ```
+2. **Build & test locally** (Python 3.12+ and C++20 compiler required):
+   ```bash
+   pip install -e ".[dev]"
+   python scripts/verify_oss_package.py
+   ```
+3. **Push to your fork and open a Pull Request** against `bzr2915/clay:main`. GitHub Actions (`Clay OSS CI`) will automatically check NDA hygiene, C++20 `-Werror` build, all 51 pure C++20 native unit tests, standalone CLI synthesis, and the full pytest suite.
+
+> Need direct branch push access as a regular collaborator? Open an Issue or contact `zhaori_bi@fudan.edu.cn` with your GitHub handle.
 
 ## License (GNU AGPLv3)
 
